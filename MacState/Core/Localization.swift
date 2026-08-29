@@ -104,6 +104,26 @@ final class L10n: ObservableObject {
     var usageLabel: String { language == .zh ? "使用率" : "Usage" }
     var temperatureLabel: String { language == .zh ? "温度" : "Temp" }
 
+    // MARK: - 历史记录
+    var historyTitle: String { language == .zh ? "历史曲线" : "History" }
+    var retentionHint: String { language == .zh ? "保留最近 3 天数据" : "Keeps the last 3 days" }
+    var threeDays: String { language == .zh ? "3天" : "3d" }
+    var historyButton: String { language == .zh ? "历史曲线" : "History Charts" }
+    var cpuSpeedLimit: String { language == .zh ? "CPU 限速" : "CPU Speed Limit" }
+    var powerLimit: String { language == .zh ? "功率限制" : "Power Limit" }
+    var thermalStateLabel: String { language == .zh ? "热状态" : "Thermal State" }
+    var thermalNominal: String { language == .zh ? "正常" : "Nominal" }
+    var thermalFair: String { language == .zh ? "轻微偏高" : "Fair" }
+    var thermalSerious: String { language == .zh ? "偏高" : "Serious" }
+    var thermalCritical: String { language == .zh ? "严重" : "Critical" }
+    var powerChartTitle: String { language == .zh ? "功率 (W)" : "Power (W)" }
+    var temperatureChartTitle: String { language == .zh ? "温度 (°C)" : "Temperature (°C)" }
+    var loadChartTitle: String { language == .zh ? "CPU 负载 (%)" : "CPU Load (%)" }
+    var limitChartTitle: String { language == .zh ? "CPU 限速 (%)" : "CPU Speed Limit (%)" }
+    var cpuPower: String { language == .zh ? "CPU 功率" : "CPU Power" }
+    var gpuPower: String { language == .zh ? "GPU 功率" : "GPU Power" }
+    var sysPower: String { language == .zh ? "系统总功率" : "System Power" }
+
     // MARK: - 设置面板
     var refreshInterval: String { language == .zh ? "刷新间隔" : "Refresh Interval" }
     var general: String { language == .zh ? "通用" : "General" }

@@ -18,6 +18,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusBarController = StatusBarController(manager: MonitorManager.shared)
 
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            HistoryStore.shared.saveNow()
+        }
+
         DistributedNotificationCenter.default().addObserver(
             self,
             selector: #selector(handleOpenTerminal(_:)),

@@ -74,6 +74,21 @@ public final class SMCService {
         return output
     }
 
+    /// Reads the SMC PLIMIT data (selector 11): current power limits as percentages.
+    public func readPLimit() -> (cpu: UInt32, gpu: UInt32, mem: UInt32) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard connection != 0 else { return (0, 0, 0) }
+
+        var input = SMCKeyData()
+        var output = SMCKeyData()
+        input.data8 = SMCCommand.readPLimit.rawValue
+
+        guard callSMC(input: &input, output: &output) else { return (0, 0, 0) }
+        return (output.pLimitData.cpuPLimit, output.pLimitData.gpuPLimit, output.pLimitData.memPLimit)
+    }
+
     // MARK: - SMC Connection
 
     private func openConnection() {

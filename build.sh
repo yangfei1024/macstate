@@ -44,12 +44,15 @@ SOURCES=(
     MacState/Core/IP2RegionService.swift
     MacState/Core/FinderMenuToggle.swift
     MacState/Core/EnergyService.swift
+    MacState/Core/PowerLimitService.swift
+    MacState/Core/HistoryStore.swift
     MacState/Core/GPUService.swift
     MacState/Core/GpuToggle.swift
     MacState/Core/GpuTempToggle.swift
     MacState/Views/AppKitSwitch.swift
     MacState/Views/PopoverView.swift
     MacState/Views/SettingsView.swift
+    MacState/Views/HistoryView.swift
 )
 
 CONFIG="${1:-release}"
@@ -67,7 +70,7 @@ xcrun clang ${C_FLAGS} -c "${IP2REGION_DIR}/xdb_searcher.c" -o build/xdb_searche
 xcrun clang ${C_FLAGS} -c "${IP2REGION_DIR}/xdb_util.c" -o build/xdb_util.o -I"${IP2REGION_DIR}"
 
 # Compile Swift + link C objects
-SWIFT_FLAGS="-target ${TARGET} -sdk ${SDK} -framework IOKit -framework SwiftUI -framework AppKit -framework ServiceManagement -framework Security -import-objc-header ${IP2REGION_DIR}/bridge.h -I${IP2REGION_DIR}"
+SWIFT_FLAGS="-target ${TARGET} -sdk ${SDK} -framework IOKit -framework SwiftUI -framework Charts -framework AppKit -framework ServiceManagement -framework Security -import-objc-header ${IP2REGION_DIR}/bridge.h -I${IP2REGION_DIR}"
 if [ "${CONFIG}" = "debug" ]; then
     SWIFT_FLAGS="${SWIFT_FLAGS} -g -Onone"
 else

@@ -147,6 +147,24 @@ struct SettingsView: View {
 
             Divider()
 
+            Button(action: {
+                HistoryWindowController.shared.show()
+            }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "chart.xyaxis.line")
+                        .frame(width: 20, alignment: .center)
+                    Text(l10n.historyButton)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(.primary)
+
+            Divider()
+
             HStack {
                 Text(l10n.refreshInterval)
                     .font(.subheadline.bold())
