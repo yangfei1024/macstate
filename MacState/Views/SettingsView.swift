@@ -1,5 +1,67 @@
 import SwiftUI
 
+/// Always-visible throttle summary shown in the settings popover.
+private struct ThrottleStatusSection: View {
+    @ObservedObject private var l10n = L10n.shared
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 3)) { _ in
+            VStack(alignment: .leading, spacing: 8) {
+                Text(l10n.powerLimit)
+                    .font(.subheadline.bold())
+                    .foregroundColor(.secondary)
+
+                let power = PowerLimitService.shared
+                let limit = power.cpuSpeedLimitPercent()
+                let limits = power.powerLimits()
+                let thermal = power.thermalState
+
+                HStack(spacing: 14) {
+                    item(
+                        label: l10n.cpuSpeedLimit,
+                        value: limit.map { String(format: "%.0f%%", $0) } ?? "--",
+                        highlight: (limit ?? 100) < 99
+                    )
+                    if let limits {
+                        item(
+                            label: l10n.powerLimit,
+                            value: String(format: "CPU %.0f%% GPU %.0f%%", limits.cpu, limits.gpu),
+                            highlight: limits.cpu < 99
+                        )
+                    }
+                    item(
+                        label: l10n.thermalStateLabel,
+                        value: thermalName(thermal),
+                        highlight: thermal.rawValue >= 2
+                    )
+                    Spacer()
+                }
+            }
+        }
+    }
+
+    private func item(label: String, value: String, highlight: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+            Text(value)
+                .font(.system(.callout, design: .monospaced).weight(.semibold))
+                .foregroundColor(highlight ? .orange : .primary)
+        }
+    }
+
+    private func thermalName(_ state: ProcessInfo.ThermalState) -> String {
+        switch state {
+        case .nominal: return l10n.thermalNominal
+        case .fair: return l10n.thermalFair
+        case .serious: return l10n.thermalSerious
+        case .critical: return l10n.thermalCritical
+        @unknown default: return "--"
+        }
+    }
+}
+
 struct SettingsView: View {
     @ObservedObject var l10n: L10n = L10n.shared
     @StateObject private var loginService = LaunchAtLoginService.shared
@@ -144,6 +206,10 @@ struct SettingsView: View {
                 }
                 .frame(width: 38, height: 22)
             }
+
+            Divider()
+
+            ThrottleStatusSection()
 
             Divider()
 

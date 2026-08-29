@@ -11,7 +11,7 @@ final class HistoryWindowController {
     func show() {
         if let window {
             window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
+            activateApp()
             return
         }
         let win = NSWindow(
@@ -24,9 +24,17 @@ final class HistoryWindowController {
         win.contentView = NSHostingView(rootView: HistoryView())
         win.center()
         win.isReleasedWhenClosed = false
+        // Menu bar apps live in their own space; without these the window can
+        // open on another space (or behind a fullscreen app) and look like a no-op.
+        win.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         win.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        win.orderFrontRegardless()
+        activateApp()
         window = win
+    }
+
+    private func activateApp() {
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
 
@@ -34,28 +42,27 @@ struct HistoryView: View {
     @ObservedObject private var l10n = L10n.shared
 
     @State private var rangeSeconds: TimeInterval = 6 * 3600
-    @State private var now = Date()
-
-    private let timer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            header
-            rangePicker
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    powerChart
-                    temperatureChart
-                    loadChart
-                    limitChart
+        TimelineView(.periodic(from: .now, by: 10)) { _ in
+            VStack(alignment: .leading, spacing: 12) {
+                header
+                rangePicker
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        powerChart
+                        temperatureChart
+                        loadChart
+                        limitChart
+                    }
                 }
             }
+            .padding(16)
+            .frame(minWidth: 560, minHeight: 620)
         }
-        .padding(16)
-        .frame(minWidth: 560, minHeight: 620)
-        .onReceive(timer) { _ in now = Date() }
     }
 
+    /// Raw samples for the selected range (≤ ~26k for 3 days at 10s).
     private var samples: [HistorySample] {
         HistoryStore.shared.samplesWithin(seconds: rangeSeconds)
     }
@@ -78,15 +85,11 @@ struct HistoryView: View {
             let thermal = PowerLimitService.shared.thermalState
 
             HStack(spacing: 16) {
-                if let limit {
-                    statusItem(
-                        label: l10n.cpuSpeedLimit,
-                        value: String(format: "%.0f%%", limit),
-                        highlight: limit < 99
-                    )
-                } else {
-                    statusItem(label: l10n.cpuSpeedLimit, value: "N/A", highlight: false)
-                }
+                statusItem(
+                    label: l10n.cpuSpeedLimit,
+                    value: limit.map { String(format: "%.0f%%", $0) } ?? "N/A",
+                    highlight: (limit ?? 100) < 99
+                )
                 if let limits {
                     statusItem(
                         label: l10n.powerLimit,
@@ -145,24 +148,9 @@ struct HistoryView: View {
     private var powerChart: some View {
         chartCard(title: l10n.powerChartTitle) {
             Chart {
-                ForEach(samples, id: \.t) { s in
-                    if s.cpuPower >= 0 {
-                        LineMark(x: .value("t", dateOf(s)), y: .value("w", s.cpuPower))
-                            .foregroundStyle(by: .value("m", l10n.cpuPower))
-                    }
-                }
-                ForEach(samples, id: \.t) { s in
-                    if s.gpuPower >= 0 {
-                        LineMark(x: .value("t", dateOf(s)), y: .value("w", s.gpuPower))
-                            .foregroundStyle(by: .value("m", l10n.gpuPower))
-                    }
-                }
-                ForEach(samples, id: \.t) { s in
-                    if s.sysPower >= 0 {
-                        LineMark(x: .value("t", dateOf(s)), y: .value("w", s.sysPower))
-                            .foregroundStyle(by: .value("m", l10n.sysPower))
-                    }
-                }
+                lineSeries(l10n.cpuPower) { $0.cpuPower }
+                lineSeries(l10n.gpuPower) { $0.gpuPower }
+                lineSeries(l10n.sysPower) { $0.sysPower }
             }
         }
     }
@@ -170,18 +158,8 @@ struct HistoryView: View {
     private var temperatureChart: some View {
         chartCard(title: l10n.temperatureChartTitle) {
             Chart {
-                ForEach(samples, id: \.t) { s in
-                    if s.cpuTemp > 0 {
-                        LineMark(x: .value("t", dateOf(s)), y: .value("c", s.cpuTemp))
-                            .foregroundStyle(by: .value("m", "CPU"))
-                    }
-                }
-                ForEach(samples, id: \.t) { s in
-                    if s.gpuTemp > 0 {
-                        LineMark(x: .value("t", dateOf(s)), y: .value("c", s.gpuTemp))
-                            .foregroundStyle(by: .value("m", "GPU"))
-                    }
-                }
+                lineSeries("CPU") { $0.cpuTemp }
+                lineSeries("GPU") { $0.gpuTemp }
             }
             .chartYScale(domain: 20...110)
         }
@@ -190,13 +168,11 @@ struct HistoryView: View {
     private var loadChart: some View {
         chartCard(title: l10n.loadChartTitle) {
             Chart {
-                ForEach(samples, id: \.t) { s in
-                    AreaMark(x: .value("t", dateOf(s)), y: .value("pct", s.cpuLoad))
+                ForEach(HistoryStore.minMaxSeries(samples) { $0.cpuLoad }, id: \.t) { p in
+                    AreaMark(x: .value("t", p.t), y: .value("pct", p.v))
                         .foregroundStyle(.blue.opacity(0.25))
-                        .interpolationMethod(.catmullRom)
-                    LineMark(x: .value("t", dateOf(s)), y: .value("pct", s.cpuLoad))
+                    LineMark(x: .value("t", p.t), y: .value("pct", p.v))
                         .foregroundStyle(.blue)
-                        .interpolationMethod(.catmullRom)
                 }
             }
             .chartYScale(domain: 0...100)
@@ -206,11 +182,9 @@ struct HistoryView: View {
     private var limitChart: some View {
         chartCard(title: l10n.limitChartTitle) {
             Chart {
-                ForEach(samples, id: \.t) { s in
-                    if s.cpuSpeedLimit >= 0 {
-                        LineMark(x: .value("t", dateOf(s)), y: .value("pct", s.cpuSpeedLimit))
-                            .foregroundStyle(.red)
-                    }
+                ForEach(HistoryStore.minMaxSeries(samples) { $0.cpuSpeedLimit }, id: \.t) { p in
+                    LineMark(x: .value("t", p.t), y: .value("pct", p.v))
+                        .foregroundStyle(.red)
                 }
                 RuleMark(y: .value("pct", 100.0))
                     .foregroundStyle(.green.opacity(0.5))
@@ -220,8 +194,13 @@ struct HistoryView: View {
         }
     }
 
-    private func dateOf(_ s: HistorySample) -> Date {
-        Date(timeIntervalSince1970: s.t)
+    /// Downsampled line series; unavailable values (-1 sentinel) are filtered
+    /// by the downsampler itself.
+    private func lineSeries(_ name: String, value: @escaping (HistorySample) -> Double) -> some ChartContent {
+        ForEach(HistoryStore.minMaxSeries(samples, value: value), id: \.t) { p in
+            LineMark(x: .value("t", p.t), y: .value("v", p.v))
+                .foregroundStyle(by: .value("m", name))
+        }
     }
 
     private func chartCard<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {

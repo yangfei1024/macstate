@@ -14,17 +14,22 @@ struct HistorySample: Codable {
 }
 
 /// Records samples on every monitor refresh and keeps the last 3 days on disk.
+/// All state is guarded by a lock; safe to call from any thread.
 final class HistoryStore {
     static let shared = HistoryStore()
 
     static let maxAge: TimeInterval = 3 * 24 * 3600
 
-    private(set) var samples: [HistorySample] = []
+    /// UI display: max points per chart series before downsampling.
+    static let maxChartPoints = 240
 
-    private let queue = DispatchQueue(label: "com.snail007.macstate.history", qos: .utility)
-    private var lastSave = Date(timeIntervalSince1970: 0)
+    private let lock = NSLock()
+    private var samples: [HistorySample] = []
     private var lastRecord: TimeInterval = 0
-    private let recordInterval: TimeInterval = 10  // one sample per 10s regardless of refresh rate
+    private var lastSave: TimeInterval = 0
+
+    /// One sample per 10s regardless of refresh rate (3 days ≈ 26k samples).
+    private let recordInterval: TimeInterval = 10
     private let saveInterval: TimeInterval = 60
 
     private var fileURL: URL {
@@ -40,7 +45,7 @@ final class HistoryStore {
 
     // MARK: - Recording
 
-    /// Called on the main thread after each monitor refresh.
+    /// Called from the monitor refresh cycle (main queue).
     func record(
         cpuLoad: Double,
         cpuTemp: Double,
@@ -51,31 +56,98 @@ final class HistoryStore {
         cpuSpeedLimit: Double,
         thermalState: Int
     ) {
-        queue.async { [weak self] in
-            guard let self else { return }
-            let now = Date().timeIntervalSince1970
-            guard now - self.lastRecord >= self.recordInterval else { return }
-            self.lastRecord = now
-            let sample = HistorySample(
-                t: now,
-                cpuLoad: cpuLoad,
-                cpuTemp: cpuTemp,
-                gpuTemp: gpuTemp,
-                cpuPower: cpuPower,
-                gpuPower: gpuPower,
-                sysPower: sysPower,
-                cpuSpeedLimit: cpuSpeedLimit,
-                thermalState: thermalState
-            )
-            self.samples.append(sample)
-            self.pruneLocked()
-            let saveNow = Date()
-            if saveNow.timeIntervalSince(self.lastSave) >= self.saveInterval {
-                self.lastSave = saveNow
-                self.saveLocked()
-            }
+        let now = Date().timeIntervalSince1970
+        let sample = HistorySample(
+            t: now,
+            cpuLoad: cpuLoad,
+            cpuTemp: cpuTemp,
+            gpuTemp: gpuTemp,
+            cpuPower: cpuPower,
+            gpuPower: gpuPower,
+            sysPower: sysPower,
+            cpuSpeedLimit: cpuSpeedLimit,
+            thermalState: thermalState
+        )
+
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard now - lastRecord >= recordInterval else { return }
+        lastRecord = now
+        samples.append(sample)
+
+        pruneLocked()
+        if now - lastSave >= saveInterval {
+            lastSave = now
+            saveLocked()
         }
     }
+
+    /// Returns samples within the last `seconds`.
+    func samplesWithin(seconds: TimeInterval) -> [HistorySample] {
+        let cutoff = Date().timeIntervalSince1970 - seconds
+        lock.lock()
+        defer { lock.unlock() }
+        return samples.filter { $0.t >= cutoff }
+    }
+
+    /// Flush pending samples to disk (call on app quit).
+    func saveNow() {
+        lock.lock()
+        defer { lock.unlock() }
+        saveLocked()
+    }
+
+    // MARK: - Downsample for display
+
+    /// Reduces a metric to at most `2 * buckets` points, keeping each time
+    /// bucket's min and max so short throttle dips stay visible.
+    static func minMaxSeries(
+        _ samples: [HistorySample],
+        buckets: Int = maxChartPoints,
+        value: (HistorySample) -> Double
+    ) -> [(t: Date, v: Double)] {
+        guard !samples.isEmpty else { return [] }
+
+        let t0 = samples[0].t
+        let t1 = samples[samples.count - 1].t
+        guard t1 > t0, buckets > 1 else {
+            return samples.map { (Date(timeIntervalSince1970: $0.t), value($0)) }
+        }
+
+        let width = (t1 - t0) / Double(buckets)
+        var result: [(t: Date, v: Double)] = []
+        result.reserveCapacity(buckets * 2)
+
+        var idx = 0
+        for b in 0..<buckets {
+            let end = t0 + Double(b + 1) * width
+            var mn = Double.greatestFiniteMagnitude
+            var mx = -Double.greatestFiniteMagnitude
+            var mnT = t0
+            var mxT = t0
+            var any = false
+
+            while idx < samples.count, samples[idx].t < end {
+                let v = value(samples[idx])
+                if v >= 0 {
+                    if v < mn { mn = v; mnT = samples[idx].t }
+                    if v > mx { mx = v; mxT = samples[idx].t }
+                    any = true
+                }
+                idx += 1
+            }
+
+            if any {
+                result.append((Date(timeIntervalSince1970: mnT), mn))
+                result.append((Date(timeIntervalSince1970: mxT), mx))
+            }
+        }
+
+        return result.sorted { $0.t.timeIntervalSince1970 < $1.t.timeIntervalSince1970 }
+    }
+
+    // MARK: - Persistence (lock held)
 
     private func pruneLocked() {
         let cutoff = Date().timeIntervalSince1970 - Self.maxAge
@@ -84,39 +156,17 @@ final class HistoryStore {
         }
     }
 
-    // MARK: - Query (called from MainActor UI)
-
-    /// Returns samples within the last `seconds`, loading from disk if needed.
-    func samplesWithin(seconds: TimeInterval) -> [HistorySample] {
-        // ensure any pending appends are visible
-        queue.sync {}
-        let cutoff = Date().timeIntervalSince1970 - seconds
-        return samples.filter { $0.t >= cutoff }
-    }
-
-    // MARK: - Persistence
-
-    private func load() {
-        queue.async { [weak self] in
-            guard let self else { return }
-            guard let data = try? Data(contentsOf: self.fileURL),
-                  let decoded = try? JSONDecoder().decode([HistorySample].self, from: data) else { return }
-            self.samples = decoded
-            self.pruneLocked()
-        }
-    }
-
     private func saveLocked() {
         guard let data = try? JSONEncoder().encode(samples) else { return }
         try? data.write(to: fileURL, options: .atomic)
     }
 
-    /// Flush pending samples to disk (call on app quit).
-    func saveNow() {
-        queue.sync {}
-        queue.sync {
-            saveLocked()
-            lastSave = Date()
-        }
+    private func load() {
+        guard let data = try? Data(contentsOf: fileURL),
+              let decoded = try? JSONDecoder().decode([HistorySample].self, from: data) else { return }
+        lock.lock()
+        samples = decoded
+        pruneLocked()
+        lock.unlock()
     }
 }

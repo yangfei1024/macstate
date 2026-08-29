@@ -654,8 +654,14 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
 
     private func showCpuTempTooltip(button: NSStatusBarButton, kind: MetricSegmentKind) {
         let v = manager.cpuTemp
-        let text = v > 0 ? "\(L10n.shared.moduleName(.cpuTemp)): \(String(format: "%.1f°C", v))" : "\(L10n.shared.moduleName(.cpuTemp)): N/A"
-        showSimpleTooltip(text: text, button: button, rect: segmentRect(for: kind, in: button))
+        let l = L10n.shared
+        var lines: [String] = []
+        lines.append("\(l.moduleName(.cpuTemp)): \(v > 0 ? String(format: "%.1f°C", v) : "N/A")")
+        if let limit = PowerLimitService.shared.cpuSpeedLimitPercent() {
+            let marker = limit < 99 ? " ⚠️" : ""
+            lines.append("\(l.cpuSpeedLimit): \(String(format: "%.0f%%", limit))\(marker)")
+        }
+        showSimpleTooltip(text: lines.joined(separator: "\n"), button: button, rect: segmentRect(for: kind, in: button))
     }
 
     private func showMemoryTooltip(button: NSStatusBarButton) {

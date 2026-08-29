@@ -96,13 +96,22 @@ final class MonitorManager: ObservableObject {
 
         workQueue.async { [weak self] in
             let cpu = CPUService.shared.totalUsage()
-            let temp = cpuTempEnabled ? SMCService.shared.cpuTemperature() ?? 0 : 0
+            let temp = SMCService.shared.cpuTemperature() ?? 0
             let mem = memoryEnabled ? MemoryService.shared.usage() : nil
             let fans = fanEnabled ? SMCService.shared.allFanSpeeds() : nil
             let net = networkEnabled ? NetworkService.shared.currentSpeed() : nil
             let bat = batteryEnabled ? BatteryService.shared.info() : nil
             let gpu = gpuEnabled ? GPUService.shared.gpuUsage() : -1.0
-            let gpuT = gpuTempEnabled ? GPUService.shared.gpuTemperature() ?? 0 : 0.0
+            let gpuT = GPUService.shared.gpuTemperature() ?? 0
+
+            // Power / throttle metrics for history recording (SMC reads are
+            // cheap but stay off the main thread)
+            let power = PowerLimitService.shared
+            let cpuPower = power.cpuPowerWatts() ?? -1
+            let gpuPower = power.gpuPowerWatts() ?? -1
+            let sysPower = power.systemPowerWatts() ?? -1
+            let speedLimit = power.cpuSpeedLimitPercent() ?? -1
+            let thermalState = power.thermalState.rawValue
 
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -131,16 +140,15 @@ final class MonitorManager: ObservableObject {
                 if gpuEnabled && Int(self.gpuUsage) != Int(gpu) { self.gpuUsage = gpu }
                 if gpuTempEnabled && Int(self.gpuTemp) != Int(gpuT) { self.gpuTemp = gpuT }
 
-                // Record history sample (power / temperature / load / throttle limits)
                 HistoryStore.shared.record(
                     cpuLoad: cpu,
-                    cpuTemp: cpuTempEnabled ? temp : (SMCService.shared.cpuTemperature() ?? 0),
-                    gpuTemp: gpuTempEnabled ? gpuT : (GPUService.shared.gpuTemperature() ?? 0),
-                    cpuPower: PowerLimitService.shared.cpuPowerWatts() ?? -1,
-                    gpuPower: PowerLimitService.shared.gpuPowerWatts() ?? -1,
-                    sysPower: PowerLimitService.shared.systemPowerWatts() ?? -1,
-                    cpuSpeedLimit: PowerLimitService.shared.cpuSpeedLimitPercent() ?? -1,
-                    thermalState: PowerLimitService.shared.thermalState.rawValue
+                    cpuTemp: temp,
+                    gpuTemp: gpuT,
+                    cpuPower: cpuPower,
+                    gpuPower: gpuPower,
+                    sysPower: sysPower,
+                    cpuSpeedLimit: speedLimit,
+                    thermalState: thermalState
                 )
             }
         }

@@ -18,6 +18,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusBarController = StatusBarController(manager: MonitorManager.shared)
 
+        // Debug/self-test: open the history window right after launch
+        if CommandLine.arguments.contains("--history-window") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                HistoryWindowController.shared.show()
+            }
+        }
+
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification,
             object: nil,
