@@ -126,7 +126,21 @@ public final class SMCService {
         return parseNumericValue(bytes: value.bytes, dataType: value.dataType)
     }
 
+    /// Rapid successive SMC calls can fail or return garbage on some Macs;
+    /// retry a few times before giving up.
     private func readValue(forKey key: String) -> SMCReadResult? {
+        for attempt in 0..<3 {
+            if let result = readValueOnce(forKey: key) {
+                return result
+            }
+            if attempt < 2 {
+                usleep(useconds_t(2000 << attempt))  // 2ms, then 4ms
+            }
+        }
+        return nil
+    }
+
+    private func readValueOnce(forKey key: String) -> SMCReadResult? {
         lock.lock()
         defer { lock.unlock() }
 

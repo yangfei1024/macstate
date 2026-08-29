@@ -6,10 +6,9 @@ private enum MetricSegmentKind: CaseIterable {
     case network    // 2-line: upload / download
     case cpu        // 2-line: load / temp
     case gpu        // 2-line: usage / temp
-    case memory     // 1-line
-    case fan        // 1-line
-    case battery    // 1-line
-    case limit      // 1-line: current CPU speed limit
+    case memory     // 2-line: memory / fan speed
+    case battery    // 2-line: power / percent
+    case limit      // 2-line: speed limit / thermal state
 }
 
 @MainActor
@@ -31,7 +30,6 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     private var pendingCpu: String = " --"
     private var pendingCpuTemp: String = " --"
     private var pendingMemory: String = " --"
-    private var pendingFan: String = " --"
     private var pendingNetUpload: String = " --"
     private var pendingNetDownload: String = " --"
     private var pendingBattery: String = " --"
@@ -116,8 +114,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         segmentVisibility[.network] = NetworkToggle.shared.enabled
         segmentVisibility[.cpu] = CpuToggle.shared.enabled || CpuTempToggle.shared.enabled
         segmentVisibility[.gpu] = GPUService.hasGPU && (GpuToggle.shared.enabled || GpuTempToggle.shared.enabled)
-        segmentVisibility[.memory] = MemoryToggle.shared.enabled
-        segmentVisibility[.fan] = FanToggle.shared.enabled
+        segmentVisibility[.memory] = MemoryToggle.shared.enabled || FanToggle.shared.enabled
         segmentVisibility[.battery] = BatteryService.hasBattery && BatteryToggle.shared.enabled
         segmentVisibility[.limit] = LimitToggle.shared.enabled
     }
@@ -149,13 +146,38 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
             if GpuTempToggle.shared.enabled { lines.append(pendingGpuTemp) }
             return lines
         case .memory:
-            return [pendingMemory]
-        case .fan:
-            return [pendingFan]
+            var lines: [String] = []
+            if MemoryToggle.shared.enabled { lines.append(pendingMemory) }
+            if FanToggle.shared.enabled {
+                let fans = manager.fanSpeeds
+                lines.append(fans.isEmpty ? " --" : String(format: " %.0f", fans.first?.current ?? 0))
+            }
+            return lines
         case .battery:
-            return [pendingBattery]
+            var lines: [String] = []
+            if BatteryService.hasBattery && BatteryToggle.shared.enabled {
+                lines.append(pendingBattery)
+                lines.append(" \(pendingBatteryPercent)%")
+            }
+            return lines
         case .limit:
-            return [pendingLimit]
+            var lines: [String] = []
+            if LimitToggle.shared.enabled {
+                lines.append(pendingLimit)
+                lines.append(" \(thermalShort(PowerLimitService.shared.thermalState))")
+            }
+            return lines
+        }
+    }
+
+    private func thermalShort(_ state: ProcessInfo.ThermalState) -> String {
+        let l = L10n.shared
+        switch state {
+        case .nominal: return l.thermalShortNominal
+        case .fair: return l.thermalShortFair
+        case .serious: return l.thermalShortSerious
+        case .critical: return l.thermalShortCritical
+        @unknown default: return "--"
         }
     }
 
@@ -165,7 +187,6 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         case .cpu: return "cpu.fill"
         case .gpu: return "display"
         case .memory: return "memorychip"
-        case .fan: return "fan"
         case .battery: return pendingBatteryIcon
         case .limit: return "speedometer"
         }
@@ -187,7 +208,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         let iconSize: CGFloat = 12
         let iconTextGap: CGFloat = 2
 
-        let order: [MetricSegmentKind] = [.network, .cpu, .gpu, .memory, .fan, .battery, .limit]
+        let order: [MetricSegmentKind] = [.network, .cpu, .gpu, .memory, .battery, .limit]
 
         struct SegmentInfo {
             let kind: MetricSegmentKind
@@ -446,19 +467,6 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
             }
             .store(in: &cancellables)
 
-        manager.$fanSpeeds
-            .removeDuplicates { lhs, rhs in
-                guard lhs.count == rhs.count else { return false }
-                return zip(lhs, rhs).allSatisfy { Int($0.0.current) == Int($0.1.current) }
-            }
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] (fans: [(current: Double, min: Double, max: Double)]) in
-                guard let self else { return }
-                self.pendingFan = fans.isEmpty ? " --" : String(format: " %.0f", fans.first?.current ?? 0)
-                self.scheduleRender()
-            }
-            .store(in: &cancellables)
-
         manager.$networkSpeed
             .removeDuplicates { $0.upload == $1.upload && $0.download == $1.download }
             .receive(on: DispatchQueue.main)
@@ -602,9 +610,14 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
             let mem = manager.memoryUsage
             let used = String(format: "%.1fGB", Double(mem.used) / 1_073_741_824)
             let total = String(format: "%.1fGB", Double(mem.total) / 1_073_741_824)
-            MemoryProcessPanel.shared.toggle(memoryInfo: "\(used)/\(total) (\(String(format: "%.0f%%", mem.usedPercentage)))")
-        case .fan:
-            showFanTooltip(button: button, kind: kind)
+            var info = "\(used)/\(total) (\(String(format: "%.0f%%", mem.usedPercentage)))"
+            let fans = manager.fanSpeeds
+            if !fans.isEmpty {
+                let l = L10n.shared
+                let fanParts = fans.enumerated().map { "\(l.fanLabel($0.offset + 1)) \(Int($0.element.current))RPM" }
+                info += "\n" + fanParts.joined(separator: "  ")
+            }
+            MemoryProcessPanel.shared.toggle(memoryInfo: info)
         case .network:
             dismissActiveTip()
             let s = manager.networkSpeed
@@ -621,18 +634,6 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     private func showCpuUsageTooltip(button: NSStatusBarButton) {
         dismissActiveTip()
         CPUProcessPanel.shared.toggle(cpuUsage: String(format: "%.1f%%", manager.cpuUsage))
-    }
-
-    private func showFanTooltip(button: NSStatusBarButton, kind: MetricSegmentKind) {
-        let fans = manager.fanSpeeds
-        let l = L10n.shared
-        let rect = segmentRect(for: kind, in: button)
-        if fans.isEmpty {
-            showSimpleTooltip(text: "\(l.moduleName(.fan)): N/A", button: button, rect: rect)
-            return
-        }
-        let parts = fans.enumerated().map { "\(l.fanLabel($0.offset + 1)): \(Int($0.element.current)) RPM" }
-        showSimpleTooltip(text: parts.joined(separator: "  "), button: button, rect: rect)
     }
 
     private func showGpuColumnTooltip(button: NSStatusBarButton, kind: MetricSegmentKind) {

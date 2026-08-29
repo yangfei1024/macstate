@@ -118,6 +118,10 @@ final class L10n: ObservableObject {
     var thermalFair: String { language == .zh ? "轻微偏高" : "Fair" }
     var thermalSerious: String { language == .zh ? "偏高" : "Serious" }
     var thermalCritical: String { language == .zh ? "严重" : "Critical" }
+    var thermalShortNominal: String { language == .zh ? "正常" : "OK" }
+    var thermalShortFair: String { language == .zh ? "轻微" : "Fair" }
+    var thermalShortSerious: String { language == .zh ? "偏高" : "High" }
+    var thermalShortCritical: String { language == .zh ? "严重" : "Crit" }
     var powerChartTitle: String { language == .zh ? "功率 (W)" : "Power (W)" }
     var temperatureChartTitle: String { language == .zh ? "温度 (°C)" : "Temperature (°C)" }
     var loadChartTitle: String { language == .zh ? "CPU 负载 (%)" : "CPU Load (%)" }
