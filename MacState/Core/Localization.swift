@@ -57,6 +57,8 @@ final class L10n: ObservableObject {
             return language == .zh ? "GPU 使用率" : "GPU Usage"
         case .gpuTemp:
             return language == .zh ? "GPU 温度" : "GPU Temperature"
+        case .limit:
+            return language == .zh ? "CPU 限速" : "CPU Speed Limit"
         }
     }
 
@@ -123,6 +125,13 @@ final class L10n: ObservableObject {
     var cpuPower: String { language == .zh ? "CPU 功率" : "CPU Power" }
     var gpuPower: String { language == .zh ? "GPU 功率" : "GPU Power" }
     var sysPower: String { language == .zh ? "系统总功率" : "System Power" }
+    var openInWindow: String { language == .zh ? "独立窗口" : "Open in Window" }
+    var cpuLoadLabel: String { language == .zh ? "CPU 负载" : "CPU Load" }
+    var throttleHint: String {
+        language == .zh
+            ? "空闲/轻负载时系统会主动压低允许的最高速度来省电，并非故障；\n负载高 + 限速低同时出现才是温控降频。"
+            : "At idle/light load macOS lowers the allowed max speed to save power;\nit only counts as thermal throttling when load is high AND the limit is low."
+    }
 
     // MARK: - 设置面板
     var refreshInterval: String { language == .zh ? "刷新间隔" : "Refresh Interval" }

@@ -73,12 +73,15 @@ struct SettingsView: View {
     @ObservedObject private var batteryToggle = BatteryToggle.shared
     @ObservedObject private var gpuToggle = GpuToggle.shared
     @ObservedObject private var gpuTempToggle = GpuTempToggle.shared
+    @ObservedObject private var limitToggle = LimitToggle.shared
     @ObservedObject private var finderMenuToggle = FinderMenuToggle.shared
 
     let manager: MonitorManager
+    @Binding var showHistory: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("\(l10n.appName) v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")(\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""))")
                     .font(.headline)
@@ -197,6 +200,17 @@ struct SettingsView: View {
             }
 
             HStack(spacing: 8) {
+                Image(systemName: "speedometer")
+                    .frame(width: 20, alignment: .center)
+                Text(l10n.moduleName(.limit))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                AppKitSwitch(label: "limit", isOn: limitToggle.enabled) { newValue in
+                    LimitToggle.shared.setEnabled(newValue)
+                }
+                .frame(width: 38, height: 22)
+            }
+
+            HStack(spacing: 8) {
                 Image(systemName: "contextualmenu.and.cursorarrow")
                     .frame(width: 20, alignment: .center)
                 Text(l10n.finderMenu)
@@ -214,7 +228,7 @@ struct SettingsView: View {
             Divider()
 
             Button(action: {
-                HistoryWindowController.shared.show()
+                showHistory = true
             }) {
                 HStack(spacing: 8) {
                     Image(systemName: "chart.xyaxis.line")
@@ -289,6 +303,7 @@ struct SettingsView: View {
             }
             .buttonStyle(.plain)
             .foregroundColor(.red)
+            }
         }
         .padding(20)
         .frame(width: 280)

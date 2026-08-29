@@ -49,6 +49,7 @@ SOURCES=(
     MacState/Core/GPUService.swift
     MacState/Core/GpuToggle.swift
     MacState/Core/GpuTempToggle.swift
+    MacState/Core/LimitToggle.swift
     MacState/Views/AppKitSwitch.swift
     MacState/Views/PopoverView.swift
     MacState/Views/SettingsView.swift

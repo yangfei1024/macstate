@@ -20,6 +20,7 @@ enum ModuleType: String, CaseIterable, Identifiable {
     case battery = "battery"
     case gpuUsage = "gpu_usage"
     case gpuTemp = "gpu_temp"
+    case limit = "limit"
 
     var id: String { rawValue }
 
@@ -42,6 +43,7 @@ final class MonitorManager: ObservableObject {
     @Published var batteryInfo = BatteryInfo()
     @Published var gpuUsage: Double = -1
     @Published var gpuTemp: Double = 0
+    @Published var cpuSpeedLimit: Double = -1
 
     @Published var refreshInterval: TimeInterval = 3.0
 
@@ -93,6 +95,7 @@ final class MonitorManager: ObservableObject {
         let batteryEnabled = BatteryToggle.shared.enabled
         let gpuEnabled = GpuToggle.shared.enabled
         let gpuTempEnabled = GpuTempToggle.shared.enabled
+        let limitEnabled = LimitToggle.shared.enabled
 
         workQueue.async { [weak self] in
             let cpu = CPUService.shared.totalUsage()
@@ -139,6 +142,7 @@ final class MonitorManager: ObservableObject {
                 }
                 if gpuEnabled && Int(self.gpuUsage) != Int(gpu) { self.gpuUsage = gpu }
                 if gpuTempEnabled && Int(self.gpuTemp) != Int(gpuT) { self.gpuTemp = gpuT }
+                if limitEnabled && Int(self.cpuSpeedLimit) != Int(speedLimit) { self.cpuSpeedLimit = speedLimit }
 
                 HistoryStore.shared.record(
                     cpuLoad: cpu,
