@@ -17,7 +17,8 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     private let metricsItem: NSStatusItem
     private let settingsItem: NSStatusItem
 
-    private let popover = NSPopover()
+    private var settingsPanel: NSPanel?
+    private var outsideClickMonitor: Any?
     private var cancellables = Set<AnyCancellable>()
     private let manager: MonitorManager
 
@@ -63,7 +64,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
 
         super.init()
 
-        setupPopover()
+        setupSettingsPanel()
         setupSettingsItem()
         setupMetricsButton()
         setupInitialSegmentVisibility()
@@ -72,6 +73,14 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         observePopoverSizeNotifications()
         observeLanguageChange()
         scheduleRender()
+
+        // 测试钩子（见 showSettingsPopover 注释）
+        if ProcessInfo.processInfo.environment["MACSTATE_AUTO_CYCLE_SETTINGS"] == "1" {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
+                guard let self, let button = self.settingsItem.button else { return }
+                self.showSettingsPopover(from: button)
+            }
+        }
     }
 
     deinit {
@@ -82,17 +91,53 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
 
     // MARK: - Setup
 
-    private func setupPopover() {
-        popover.contentSize = NSSize(width: 280, height: 660)
-        popover.behavior = .transient
-        popover.animates = false
-        popover.delegate = self
+    /// 设置面板用 NSPanel 浮窗而非 NSPopover：macOS 26 上 NSPopover+SwiftUI
+    /// 在独显激活时开合会触发 RenderBox/AMD 驱动崩溃（cacheDisplay 快照路径）
+    private func setupSettingsPanel() {
+        let p = KeyablePanel(
+            contentRect: NSRect(x: 0, y: 0, width: 280, height: 660),
+            styleMask: [.titled, .closable, .resizable, .nonactivatingPanel],
+            backing: .buffered,
+            defer: true
+        )
+        p.title = L10n.shared.settings
+        p.isFloatingPanel = true
+        p.hidesOnDeactivate = false
+        p.level = .floating
+        p.isReleasedWhenClosed = false
+        p.minSize = NSSize(width: 280, height: 500)
+        p.setFrameAutosaveName("SettingsPanel")
+        settingsPanel = p
     }
 
-    nonisolated func popoverDidClose(_ notification: Notification) {
-        MainActor.assumeIsolated {
-            popover.contentViewController = nil
-            hostingController = nil
+    /// 面板锚定到设置图标正下方
+    private func positionSettingsPanel() {
+        guard let panel = settingsPanel, let button = settingsItem.button, let buttonWindow = button.window else { return }
+        let buttonFrame = buttonWindow.convertToScreen(button.frame)
+        guard let screen = NSScreen.main else { return }
+        let visible = screen.visibleFrame
+        var x = buttonFrame.midX - panel.frame.width / 2
+        x = max(visible.minX + 4, min(x, visible.maxX - panel.frame.width - 4))
+        let y = buttonFrame.minY - panel.frame.height - 4
+        panel.setFrameOrigin(NSPoint(x: x, y: max(visible.minY + 4, y)))
+    }
+
+    private func hideSettingsPanel() {
+        settingsPanel?.orderOut(nil)
+        stopOutsideClickMonitor()
+    }
+
+    private func startOutsideClickMonitor() {
+        stopOutsideClickMonitor()
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            Task { @MainActor in self?.hideSettingsPanel() }
+        }
+    }
+
+    private func stopOutsideClickMonitor() {
+        if let m = outsideClickMonitor {
+            NSEvent.removeMonitor(m)
+            outsideClickMonitor = nil
         }
     }
 
@@ -465,7 +510,8 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
             guard let self,
                   let w = note.userInfo?["width"] as? Double,
                   let h = note.userInfo?["height"] as? Double else { return }
-            self.popover.contentSize = NSSize(width: w, height: h)
+            self.settingsPanel?.setContentSize(NSSize(width: w, height: h))
+            self.positionSettingsPanel()
         })
     }
 
@@ -607,7 +653,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     }
 
     private func refreshPopover() {
-        if popover.isShown {
+        if settingsPanel?.isVisible == true {
             hostingController?.rootView = PopoverView(manager: manager)
         }
     }
@@ -615,15 +661,36 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     // MARK: - Click Handling
 
     @objc private func settingsItemClicked(_ sender: NSStatusBarButton) {
-        if popover.isShown {
-            popover.performClose(sender)
-        } else {
+        showSettingsPopover(from: sender)
+    }
+
+    private func showSettingsPopover(from sender: NSStatusBarButton) {
+        guard let panel = settingsPanel else { return }
+
+        if panel.isVisible {
+            hideSettingsPanel()
+            return
+        }
+
+        if hostingController == nil {
             let hc = NSHostingController(rootView: PopoverView(manager: manager))
             hostingController = hc
-            popover.contentViewController = hc
-            popover.contentSize = NSSize(width: 280, height: 660)
-            popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
-            popover.contentViewController?.view.window?.makeKey()
+            panel.contentView = hc.view
+        }
+        panel.setContentSize(NSSize(width: 280, height: 660))
+        positionSettingsPanel()
+        panel.makeKeyAndOrderFront(nil)
+        startOutsideClickMonitor()
+
+        // 测试钩子：MACSTATE_AUTO_CYCLE_SETTINGS=1 时模拟用户反复开合设置面板
+        guard ProcessInfo.processInfo.environment["MACSTATE_AUTO_CYCLE_SETTINGS"] == "1" else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+            guard let self, self.settingsPanel?.isVisible == true else { return }
+            self.hideSettingsPanel()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                guard let self, let button = self.settingsItem.button else { return }
+                self.showSettingsPopover(from: button)
+            }
         }
     }
 
