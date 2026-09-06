@@ -85,7 +85,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     private func setupPopover() {
         popover.contentSize = NSSize(width: 280, height: 660)
         popover.behavior = .transient
-        popover.animates = true
+        popover.animates = false
         popover.delegate = self
     }
 
@@ -746,7 +746,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
 
         let tip = NSPopover()
         tip.behavior = .applicationDefined
-        tip.animates = true
+        tip.animates = false
         let label = NSTextField(labelWithString: text)
         label.font = NSFont.systemFont(ofSize: 12)
         label.alignment = .center
@@ -778,7 +778,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         let l = L10n.shared
         let tip = NSPopover()
         tip.behavior = .applicationDefined
-        tip.animates = true
+        tip.animates = false
 
         let labelFont = NSFont.systemFont(ofSize: 12)
         let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
