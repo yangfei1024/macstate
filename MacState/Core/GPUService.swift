@@ -133,11 +133,20 @@ final class GPUService {
     /// re-querying IOAccelerator on every UI render makes rows flicker when
     /// the dGPU sleeps (its accelerator node temporarily disappears).
     private static var cachedHasGPU: Bool?
+    private static var cachedHasDiscreteGPU: Bool?
 
     static var hasGPU: Bool {
         if let cached = cachedHasGPU { return cached }
         let value = GPUService.shared.gpuUsage() >= 0
         cachedHasGPU = value
+        return value
+    }
+
+    /// 是否存在独立显卡（无独显机型隐藏独显模块，而不是留着一个空转的段）
+    static var hasDiscreteGPU: Bool {
+        if let cached = cachedHasDiscreteGPU { return cached }
+        let value = GPUService.shared.allGPUUsages().contains { $0.name == "discrete" }
+        cachedHasDiscreteGPU = value
         return value
     }
 }
