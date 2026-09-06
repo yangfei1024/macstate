@@ -72,22 +72,20 @@ private struct LimitSummaryHeader: View {
         TimelineView(.periodic(from: .now, by: 3)) { _ in
             VStack(alignment: .leading, spacing: 6) {
                 let power = PowerLimitService.shared
-                let limit = power.cpuSpeedLimitPercent()
-                let limits = power.powerLimits()
+                let limits = power.currentPowerLimits()
+                let avg = power.cpuAverageLimitPercent()
 
                 HStack(spacing: 14) {
                     item(
-                        label: l10n.cpuSpeedLimit,
-                        value: limit.map { String(format: "%.0f%%", $0) } ?? "--",
-                        highlight: (limit ?? 100) < 99
+                        label: l10n.currentLimitLabel,
+                        value: limits.map { String(format: "CPU %.0f%% GPU %.0f%%", $0.cpu, $0.gpu) } ?? "--",
+                        highlight: limits.map { $0.cpu < 99 || $0.gpu < 99 } ?? false
                     )
-                    if let limits {
-                        item(
-                            label: l10n.powerLimit,
-                            value: String(format: "CPU %.0f%% GPU %.0f%%", limits.cpu, limits.gpu),
-                            highlight: limits.cpu < 99
-                        )
-                    }
+                    item(
+                        label: l10n.recentAvgLimitLabel,
+                        value: avg.map { String(format: "%.0f%%", $0) } ?? "--",
+                        highlight: false
+                    )
                     item(
                         label: l10n.thermalStateLabel,
                         value: thermalName(power.thermalState),
@@ -95,6 +93,10 @@ private struct LimitSummaryHeader: View {
                     )
                     Spacer()
                 }
+
+                Text(l10n.throttleHint)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)

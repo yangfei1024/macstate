@@ -124,18 +124,29 @@ public final class SMCService {
     }
 
     /// Reads the SMC PLIMIT data (selector 11): current power limits as percentages.
-    public func readPLimit() -> (cpu: UInt32, gpu: UInt32, mem: UInt32) {
+    /// PLIMIT command (selector 11): the limits the SMC is enforcing right
+    /// now, as percent of max (0 = not limited). Returns nil when the read
+    /// fails — previously failure was indistinguishable from "no limit".
+    /// Retried like key reads: the SMC intermittently fails under rapid polling.
+    public func readPLimit() -> (cpu: UInt32, gpu: UInt32, mem: UInt32)? {
         lock.lock()
         defer { lock.unlock() }
 
-        guard connection != 0 else { return (0, 0, 0) }
+        guard connection != 0 else { return nil }
 
-        var input = SMCKeyData()
-        var output = SMCKeyData()
-        input.data8 = SMCCommand.readPLimit.rawValue
+        for attempt in 0..<3 {
+            var input = SMCKeyData()
+            var output = SMCKeyData()
+            input.data8 = SMCCommand.readPLimit.rawValue
 
-        guard callSMC(input: &input, output: &output) else { return (0, 0, 0) }
-        return (output.pLimitData.cpuPLimit, output.pLimitData.gpuPLimit, output.pLimitData.memPLimit)
+            if callSMC(input: &input, output: &output) {
+                return (output.pLimitData.cpuPLimit, output.pLimitData.gpuPLimit, output.pLimitData.memPLimit)
+            }
+            if attempt < 2 {
+                usleep(useconds_t(2000 << attempt))  // 2ms, then 4ms
+            }
+        }
+        return nil
     }
 
     // MARK: - SMC Connection

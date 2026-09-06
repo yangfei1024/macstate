@@ -80,23 +80,21 @@ struct HistoryView: View {
                     .foregroundColor(.secondary)
             }
 
-            let limit = PowerLimitService.shared.cpuSpeedLimitPercent()
-            let limits = PowerLimitService.shared.powerLimits()
+            let limits = PowerLimitService.shared.currentPowerLimits()
+            let avg = PowerLimitService.shared.cpuAverageLimitPercent()
             let thermal = PowerLimitService.shared.thermalState
 
             HStack(spacing: 16) {
                 statusItem(
-                    label: l10n.cpuSpeedLimit,
-                    value: limit.map { String(format: "%.0f%%", $0) } ?? "N/A",
-                    highlight: (limit ?? 100) < 99
+                    label: l10n.currentLimitLabel,
+                    value: limits.map { String(format: "CPU %.0f%% / GPU %.0f%%", $0.cpu, $0.gpu) } ?? "N/A",
+                    highlight: limits.map { $0.cpu < 99 || $0.gpu < 99 } ?? false
                 )
-                if let limits {
-                    statusItem(
-                        label: l10n.powerLimit,
-                        value: String(format: "CPU %.0f%% / GPU %.0f%%", limits.cpu, limits.gpu),
-                        highlight: limits.cpu < 99
-                    )
-                }
+                statusItem(
+                    label: l10n.recentAvgLimitLabel,
+                    value: avg.map { String(format: "%.0f%%", $0) } ?? "N/A",
+                    highlight: false
+                )
                 statusItem(
                     label: l10n.thermalStateLabel,
                     value: thermalName(thermal),

@@ -117,6 +117,8 @@ final class L10n: ObservableObject {
     var historyButton: String { language == .zh ? "历史曲线" : "History Charts" }
     var cpuSpeedLimit: String { language == .zh ? "CPU 限速" : "CPU Speed Limit" }
     var powerLimit: String { language == .zh ? "功率限制" : "Power Limit" }
+    var currentLimitLabel: String { language == .zh ? "当前限制" : "Current Limit" }
+    var recentAvgLimitLabel: String { language == .zh ? "近期平均" : "Recent Avg" }
     var thermalStateLabel: String { language == .zh ? "热状态" : "Thermal State" }
     var thermalNominal: String { language == .zh ? "正常" : "Nominal" }
     var thermalFair: String { language == .zh ? "轻微偏高" : "Fair" }
@@ -137,8 +139,8 @@ final class L10n: ObservableObject {
     var cpuLoadLabel: String { language == .zh ? "CPU 负载" : "CPU Load" }
     var throttleHint: String {
         language == .zh
-            ? "空闲/轻负载时系统会主动压低允许的最高速度来省电，并非故障；\n负载高 + 限速低同时出现才是温控降频。"
-            : "At idle/light load macOS lowers the allowed max speed to save power;\nit only counts as thermal throttling when load is high AND the limit is low."
+            ? "“当前限制”是 SMC 此刻正在执行的功率限制（PLIMIT，0 视为 100% 不限制）。供电/功率侧压力大时它会被压低，负载停止后可能还要一段时间才恢复——这是 A2141 供电设计的已知短板，可结合下方温度与历史曲线的功率判断。\n负载高 + 当前限制低 = 正在被降频；“近期平均”是 SMC 发出过的限制的历史均值，仅作参考。"
+            : "\"Current Limit\" is the power limit the SMC is enforcing right now (PLIMIT; 0 counts as 100% = unlimited). It drops under power/delivery pressure and can stay low for a while after the load ends — a known A2141 supply-design weakness. Cross-check the temperatures below and the power trace in History.\nHigh load + low current limit = actively throttled. \"Recent Avg\" is the historical average of limits the SMC has sent, for reference only."
     }
 
     // MARK: - 传感器页面
