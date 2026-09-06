@@ -5,7 +5,8 @@ import Combine
 private enum MetricSegmentKind: CaseIterable {
     case network    // 2-line: upload / download
     case cpu        // 2-line: load / temp
-    case gpu        // 2-line: usage / temp
+    case igpu       // 2-line: usage / temp
+    case dgpu       // 2-line: usage / temp
     case memory     // 2-line: memory / fan speed
     case battery    // 2-line: power / percent
     case limit      // 2-line: speed limit / thermal state
@@ -33,8 +34,10 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     private var pendingNetUpload: String = " --"
     private var pendingNetDownload: String = " --"
     private var pendingBattery: String = " --"
-    private var pendingGpu: String = " --"
-    private var pendingGpuTemp: String = " --"
+    private var pendingIGpu: String = " --"
+    private var pendingIGpuTemp: String = " --"
+    private var pendingDGpu: String = " --"
+    private var pendingDGpuTemp: String = " --"
     private var pendingLimit: String = " --"
     private var pendingLimitValue: Double = -1
     private var pendingBatteryIcon: String = "bolt.fill"
@@ -113,7 +116,8 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     private func setupInitialSegmentVisibility() {
         segmentVisibility[.network] = NetworkToggle.shared.enabled
         segmentVisibility[.cpu] = CpuToggle.shared.enabled || CpuTempToggle.shared.enabled
-        segmentVisibility[.gpu] = GPUService.hasGPU && (GpuToggle.shared.enabled || GpuTempToggle.shared.enabled)
+        segmentVisibility[.igpu] = IGpuToggle.shared.enabled
+        segmentVisibility[.dgpu] = DGpuToggle.shared.enabled
         segmentVisibility[.memory] = MemoryToggle.shared.enabled || FanToggle.shared.enabled
         segmentVisibility[.battery] = BatteryService.hasBattery && BatteryToggle.shared.enabled
         segmentVisibility[.limit] = LimitToggle.shared.enabled
@@ -140,10 +144,19 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
             if CpuToggle.shared.enabled { lines.append(pendingCpu) }
             if CpuTempToggle.shared.enabled { lines.append(pendingCpuTemp) }
             return lines
-        case .gpu:
+        case .igpu:
             var lines: [String] = []
-            if GpuToggle.shared.enabled { lines.append(pendingGpu) }
-            if GpuTempToggle.shared.enabled { lines.append(pendingGpuTemp) }
+            if IGpuToggle.shared.enabled {
+                lines.append(pendingIGpu)
+                lines.append(pendingIGpuTemp)
+            }
+            return lines
+        case .dgpu:
+            var lines: [String] = []
+            if DGpuToggle.shared.enabled {
+                lines.append(pendingDGpu)
+                lines.append(pendingDGpuTemp)
+            }
             return lines
         case .memory:
             var lines: [String] = []
@@ -185,12 +198,24 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         switch kind {
         case .network: return "network"
         case .cpu: return "cpu.fill"
-        case .gpu: return "display"
+        case .igpu: return "cpu"
+        case .dgpu: return "display"
         case .memory: return "memorychip"
         case .battery: return pendingBatteryIcon
         case .limit: return "speedometer"
         }
     }
+
+    /// 核显/独显段用单字文字图标，比 SF Symbol（显示器/芯片）更直白
+    private func iconGlyph(for kind: MetricSegmentKind) -> String? {
+        switch kind {
+        case .igpu: return "核"
+        case .dgpu: return "独"
+        default: return nil
+        }
+    }
+
+    private static let glyphFont = NSFont.boldSystemFont(ofSize: 10)
 
     /// True when the CPU is genuinely thermal/power throttled: the allowed
     /// speed is capped while the load is actually high. A low limit at idle
@@ -208,7 +233,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         let iconSize: CGFloat = 12
         let iconTextGap: CGFloat = 2
 
-        let order: [MetricSegmentKind] = [.network, .cpu, .gpu, .memory, .battery, .limit]
+        let order: [MetricSegmentKind] = [.cpu, .igpu, .network, .dgpu, .memory, .battery, .limit]
 
         struct SegmentInfo {
             let kind: MetricSegmentKind
@@ -224,7 +249,9 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
 
             var actualIconW = iconSize
             let iconName = self.iconName(for: kind)
-            if iconName == "_battery_custom_" {
+            if let glyph = self.iconGlyph(for: kind) {
+                actualIconW = ceil((glyph as NSString).size(withAttributes: [.font: Self.glyphFont]).width)
+            } else if iconName == "_battery_custom_" {
                 actualIconW = 22 + 3  // batteryBodyW + batteryCapW, must match drawing code
             } else if let iconImage = NSImage(systemSymbolName: iconName, accessibilityDescription: nil)?
                 .withSymbolConfiguration(iconConfig) {
@@ -268,7 +295,15 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
 
                 var actualIconW = iconSize
 
-                if iconName == "_battery_custom_" {
+                if let glyph = self.iconGlyph(for: seg.kind) {
+                    let gSize = (glyph as NSString).size(withAttributes: [.font: Self.glyphFont])
+                    let gY = (barHeight - gSize.height) / 2
+                    (glyph as NSString).draw(
+                        at: NSPoint(x: x, y: gY),
+                        withAttributes: [.font: Self.glyphFont, .foregroundColor: NSColor.labelColor]
+                    )
+                    actualIconW = ceil(gSize.width)
+                } else if iconName == "_battery_custom_" {
                     let batteryH: CGFloat = 11
                     let bodyW: CGFloat = 22
                     let capW: CGFloat = 1.5
@@ -405,8 +440,8 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         observe(NetworkToggle.changedNotification) { NetworkToggle.shared.enabled }
         observe(LimitToggle.changedNotification) { LimitToggle.shared.enabled }
         observe(BatteryToggle.changedNotification) { BatteryService.hasBattery && BatteryToggle.shared.enabled }
-        observe(GpuToggle.changedNotification) { GPUService.hasGPU && (GpuToggle.shared.enabled || GpuTempToggle.shared.enabled) }
-        observe(GpuTempToggle.changedNotification) { GPUService.hasGPU && (GpuToggle.shared.enabled || GpuTempToggle.shared.enabled) }
+        observe(IGpuToggle.changedNotification) { IGpuToggle.shared.enabled }
+        observe(DGpuToggle.changedNotification) { DGpuToggle.shared.enabled }
     }
 
     /// `kind == nil` re-evaluates every segment (one toggle can affect a whole
@@ -507,22 +542,42 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
             }
             .store(in: &cancellables)
 
-        manager.$gpuUsage
+        manager.$igpuUsage
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] value in
                 guard let self else { return }
-                self.pendingGpu = value >= 0 ? String(format: " %.0f%%", value) : " --"
+                self.pendingIGpu = value >= 0 ? String(format: " %.0f%%", value) : " --"
                 self.scheduleRender()
             }
             .store(in: &cancellables)
 
-        manager.$gpuTemp
+        manager.$igpuTemp
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] value in
                 guard let self else { return }
-                self.pendingGpuTemp = value > 0 ? String(format: " %.0f\u{00B0}", value) : " --"
+                self.pendingIGpuTemp = value > 0 ? String(format: " %.0f\u{00B0}", value) : " --"
+                self.scheduleRender()
+            }
+            .store(in: &cancellables)
+
+        manager.$dgpuUsage
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] value in
+                guard let self else { return }
+                self.pendingDGpu = value >= 0 ? String(format: " %.0f%%", value) : " --"
+                self.scheduleRender()
+            }
+            .store(in: &cancellables)
+
+        manager.$dgpuTemp
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] value in
+                guard let self else { return }
+                self.pendingDGpuTemp = value > 0 ? String(format: " %.0f\u{00B0}", value) : " --"
                 self.scheduleRender()
             }
             .store(in: &cancellables)
@@ -624,7 +679,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
             NetworkProcessPanel.shared.toggle(upload: s.uploadFormatted, download: s.downloadFormatted)
         case .battery:
             showBatteryTooltip(button: button, kind: kind)
-        case .gpu:
+        case .igpu, .dgpu:
             showGpuColumnTooltip(button: button, kind: kind)
         case .limit:
             showLimitTooltip(button: button, kind: kind)
@@ -666,23 +721,9 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     }
 
     private func showLimitTooltip(button: NSStatusBarButton, kind: MetricSegmentKind) {
-        let l = L10n.shared
-        let power = PowerLimitService.shared
-        var lines: [String] = []
-
-        let limit = power.cpuSpeedLimitPercent()
-        let marker = throttleActive ? " ⚠️" : ""
-        lines.append("\(l.cpuSpeedLimit): \(limit.map { String(format: "%.0f%%", $0) } ?? "N/A")\(marker)")
-
-        if let limits = power.powerLimits() {
-            lines.append("\(l.powerLimit): CPU \(String(format: "%.0f%%", limits.cpu)) / GPU \(String(format: "%.0f%%", limits.gpu))")
-        }
-        lines.append("\(l.thermalStateLabel): \(thermalName(power.thermalState))")
-        lines.append("\(l.cpuLoadLabel): \(String(format: "%.0f%%", manager.cpuUsage)) · \(l.moduleName(.cpuTemp)): \(String(format: "%.0f°C", manager.cpuTemp))")
-        lines.append("")
-        lines.append(l.throttleHint)
-
-        showSimpleTooltip(text: lines.joined(separator: "\n"), button: button, rect: segmentRect(for: kind, in: button))
+        // 点击"限速"段：弹出限速状态 + 全部温度传感器面板
+        dismissActiveTip()
+        LimitPanelController.shared.toggle()
     }
 
     private func thermalName(_ state: ProcessInfo.ThermalState) -> String {

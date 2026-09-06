@@ -113,11 +113,31 @@ final class GPUService {
             IOObjectRelease(entry)
             entry = IOIteratorNext(iterator)
         }
+
+        // 独显休眠时其 IOAccelerator 节点会从注册表消失，用 SMC 键兜底，
+        // 保证菜单栏始终有独显温度
+        if !results.contains(where: { $0.label == "discrete" }),
+           let v = SMCService.shared.readKey(smcFallbackAMD), v > 0, v < 150 {
+            results.append((label: "discrete", temp: v))
+        }
+        if !results.contains(where: { $0.label == "integrated" }),
+           let v = SMCService.shared.readKey(smcFallbackIntel), v > 0, v < 150 {
+            results.append((label: "integrated", temp: v))
+        }
+
         return results
     }
 
-    /// Whether this machine has a GPU we can monitor
+    /// Whether this machine has a GPU we can monitor.
+    /// Cached after first check: hardware presence is fixed per boot, and
+    /// re-querying IOAccelerator on every UI render makes rows flicker when
+    /// the dGPU sleeps (its accelerator node temporarily disappears).
+    private static var cachedHasGPU: Bool?
+
     static var hasGPU: Bool {
-        return GPUService.shared.gpuUsage() >= 0
+        if let cached = cachedHasGPU { return cached }
+        let value = GPUService.shared.gpuUsage() >= 0
+        cachedHasGPU = value
+        return value
     }
 }

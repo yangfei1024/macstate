@@ -235,9 +235,14 @@ final class MemoryProcessPanel: NSObject, NSTableViewDataSource, NSTableViewDele
             }
 
             if columnID == pidColumnID {
-                let cell = NSTextField(labelWithString: "\(proc.pid)")
+                // 聚合行显示进程数（如 ×12），单进程行显示 PID
+                let text = proc.processCount > 1 ? "×\(proc.processCount)" : "\(proc.pid)"
+                let cell = NSTextField(labelWithString: text)
                 cell.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
                 cell.textColor = .secondaryLabelColor
+                if proc.processCount > 1 {
+                    cell.toolTip = proc.command
+                }
                 return centeredContainer(cell)
             }
 

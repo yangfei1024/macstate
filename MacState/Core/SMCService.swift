@@ -57,6 +57,55 @@ public final class SMCService {
         return readNumericValue(forKey: key)
     }
 
+    /// Enumerates every key the SMC exposes (~1100 on T2 Macs), including
+    /// sensor keys that no model list covers. Single lock scope: must not
+    /// call the locking readValue* helpers from here.
+    public func allKeys() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard connection != 0 else { return [] }
+
+        // Key count lives under "#KEY" (ui32, 4 bytes, big-endian).
+        var input = SMCKeyData()
+        var output = SMCKeyData()
+        guard let countKey = encodeSMCKey("#KEY") else { return [] }
+        input.key = countKey
+        input.data8 = SMCCommand.readKeyInfo.rawValue
+        guard callSMC(input: &input, output: &output) else { return [] }
+        let countSize = output.keyInfo.dataSize
+        input.keyInfo.dataSize = countSize
+        input.data8 = SMCCommand.readBytes.rawValue
+        guard callSMC(input: &input, output: &output), countSize >= 4 else { return [] }
+
+        let b = output.bytesArray
+        let count = Int(b[0]) << 24 | Int(b[1]) << 16 | Int(b[2]) << 8 | Int(b[3])
+        guard count > 0, count < 10_000 else { return [] }
+
+        var keys: [String] = []
+        keys.reserveCapacity(count)
+        for i in 0..<count {
+            var indexIn = SMCKeyData()
+            var indexOut = SMCKeyData()
+            indexIn.data8 = SMCCommand.readIndex.rawValue
+            indexIn.data32 = UInt32(i)
+            guard callSMC(input: &indexIn, output: &indexOut) else { continue }
+
+            let raw = indexOut.key
+            var chars: [Character] = []
+            for shift in [24, 16, 8, 0] {
+                let byte = (raw >> UInt32(shift)) & 0xFF
+                if byte >= 32 && byte < 127 {
+                    chars.append(Character(UnicodeScalar(UInt8(byte))))
+                }
+            }
+            if chars.count == 4 {
+                keys.append(String(chars))
+            }
+        }
+        return keys
+    }
+
     public func allFanSpeeds() -> [(current: Double, min: Double, max: Double)] {
         let count = fanCount()
         guard count > 0 else { return [] }

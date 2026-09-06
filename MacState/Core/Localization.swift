@@ -57,6 +57,10 @@ final class L10n: ObservableObject {
             return language == .zh ? "GPU 使用率" : "GPU Usage"
         case .gpuTemp:
             return language == .zh ? "GPU 温度" : "GPU Temperature"
+        case .igpu:
+            return language == .zh ? "核显" : "iGPU"
+        case .dgpu:
+            return language == .zh ? "独显" : "dGPU"
         case .limit:
             return language == .zh ? "CPU 限速" : "CPU Speed Limit"
         }
@@ -135,6 +139,15 @@ final class L10n: ObservableObject {
         language == .zh
             ? "空闲/轻负载时系统会主动压低允许的最高速度来省电，并非故障；\n负载高 + 限速低同时出现才是温控降频。"
             : "At idle/light load macOS lowers the allowed max speed to save power;\nit only counts as thermal throttling when load is high AND the limit is low."
+    }
+
+    // MARK: - 传感器页面
+    var sensorsButton: String { language == .zh ? "全部温度" : "All Temperatures" }
+    var sensorsTitle: String { language == .zh ? "温度传感器" : "Temperature Sensors" }
+    var sensorsPowerNote: String {
+        language == .zh
+            ? "“供电 / VRM”组是供电区附近的板级测点（proximity），不是 VRM 相温或电源管理 IC 的结温——SMC 不暴露那些，任何工具都读不到。供电区持续偏高、且同时出现限速才值得关注（CPU 限速和功率见“历史曲线”）。个别键显示“--”也是正常的：那是偏移量（如 TC0T）或未挂载的占位测点（如 TGDT），本来就不是真实温度。"
+            : "The Power/VRM group holds board-level sensors near the supply area — not VRM phase or PMIC junction temps (the SMC never exposes those). Only sustained high readings together with speed limiting matter; see History for CPU speed limit and power. A “--” reading is normal too: those keys are offsets (TC0T) or unpopulated placeholders (TGDT), not real temperatures."
     }
 
     // MARK: - 设置面板

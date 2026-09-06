@@ -3,14 +3,58 @@ import SwiftUI
 /// Always-visible throttle summary shown in the settings popover.
 private struct ThrottleStatusSection: View {
     @ObservedObject private var l10n = L10n.shared
+    @State private var showAllTemps = false
+    /// 展开状态变化时通知外层（弹窗加高、滚动定位）
+    var onExpandedChange: ((Bool) -> Void)? = nil
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.2)) { showAllTemps.toggle() }
+                onExpandedChange?(showAllTemps)
+                NotificationCenter.default.post(
+                    name: Notification.Name("MacStateSensorsExpanded"),
+                    object: nil,
+                    userInfo: ["expanded": showAllTemps]
+                )
+            }) {
+                HStack {
+                    Text(l10n.powerLimit)
+                        .font(.subheadline.bold())
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Image(systemName: "chevron.down")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .rotationEffect(.degrees(showAllTemps ? 180 : 0))
+                }
+            }
+            .buttonStyle(.plain)
+
+            summary
+
+            if showAllTemps {
+                SensorsView(showsHeader: false, scrollable: false, compact: true)
+            }
+        }
+        .onAppear {
+            // 测试钩子：MACSTATE_AUTO_EXPAND=1 时 5 秒后自动走一遍展开链路
+            guard ProcessInfo.processInfo.environment["MACSTATE_AUTO_EXPAND"] == "1" else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                showAllTemps = true
+                onExpandedChange?(true)
+                NotificationCenter.default.post(
+                    name: Notification.Name("MacStateSensorsExpanded"),
+                    object: nil,
+                    userInfo: ["expanded": true]
+                )
+            }
+        }
+    }
+
+    private var summary: some View {
         TimelineView(.periodic(from: .now, by: 3)) { _ in
             VStack(alignment: .leading, spacing: 8) {
-                Text(l10n.powerLimit)
-                    .font(.subheadline.bold())
-                    .foregroundColor(.secondary)
-
                 let power = PowerLimitService.shared
                 let limit = power.cpuSpeedLimitPercent()
                 let limits = power.powerLimits()
@@ -71,16 +115,18 @@ struct SettingsView: View {
     @ObservedObject private var fanToggle = FanToggle.shared
     @ObservedObject private var networkToggle = NetworkToggle.shared
     @ObservedObject private var batteryToggle = BatteryToggle.shared
-    @ObservedObject private var gpuToggle = GpuToggle.shared
-    @ObservedObject private var gpuTempToggle = GpuTempToggle.shared
+    @ObservedObject private var igpuToggle = IGpuToggle.shared
+    @ObservedObject private var dgpuToggle = DGpuToggle.shared
     @ObservedObject private var limitToggle = LimitToggle.shared
     @ObservedObject private var finderMenuToggle = FinderMenuToggle.shared
 
     let manager: MonitorManager
     @Binding var showHistory: Bool
+    @Binding var showSensors: Bool
 
     var body: some View {
         ScrollView {
+            ScrollViewReader { proxy in
             VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("\(l10n.appName) v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")(\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""))")
@@ -108,17 +154,6 @@ struct SettingsView: View {
                 .foregroundColor(.secondary)
 
             HStack(spacing: 8) {
-                Image(systemName: "cpu.fill")
-                    .frame(width: 20, alignment: .center)
-                Text(l10n.moduleName(.cpuUsage))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                AppKitSwitch(label: "cpu", isOn: cpuToggle.enabled) { newValue in
-                    CpuToggle.shared.setEnabled(newValue)
-                }
-                .frame(width: 38, height: 22)
-            }
-
-            HStack(spacing: 8) {
                 Image(systemName: "thermometer.medium")
                     .frame(width: 20, alignment: .center)
                 Text(l10n.moduleName(.cpuTemp))
@@ -126,29 +161,31 @@ struct SettingsView: View {
                 AppKitSwitch(label: "cpuTemp", isOn: cpuTempToggle.enabled) { newValue in
                     CpuTempToggle.shared.setEnabled(newValue)
                 }
-                .frame(width: 38, height: 22)
+                .frame(width: 54, height: 24)
             }
 
             HStack(spacing: 8) {
-                Image(systemName: "memorychip")
+                Image(systemName: "cpu.fill")
                     .frame(width: 20, alignment: .center)
-                Text(l10n.moduleName(.memory))
+                Text(l10n.moduleName(.cpuUsage))
                     .frame(maxWidth: .infinity, alignment: .leading)
-                AppKitSwitch(label: "memory", isOn: memoryToggle.enabled) { newValue in
-                    MemoryToggle.shared.setEnabled(newValue)
+                AppKitSwitch(label: "cpu", isOn: cpuToggle.enabled) { newValue in
+                    CpuToggle.shared.setEnabled(newValue)
                 }
-                .frame(width: 38, height: 22)
+                .frame(width: 54, height: 24)
             }
 
-            HStack(spacing: 8) {
-                Image(systemName: "fan")
-                    .frame(width: 20, alignment: .center)
-                Text(l10n.moduleName(.fan))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                AppKitSwitch(label: "fan", isOn: fanToggle.enabled) { newValue in
-                    FanToggle.shared.setEnabled(newValue)
+            if GPUService.hasGPU {
+                HStack(spacing: 8) {
+                    Image(systemName: "cpu")
+                        .frame(width: 20, alignment: .center)
+                    Text(l10n.moduleName(.igpu))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    AppKitSwitch(label: "igpu", isOn: igpuToggle.enabled) { newValue in
+                        IGpuToggle.shared.setEnabled(newValue)
+                    }
+                    .frame(width: 54, height: 24)
                 }
-                .frame(width: 38, height: 22)
             }
 
             HStack(spacing: 8) {
@@ -159,7 +196,42 @@ struct SettingsView: View {
                 AppKitSwitch(label: "network", isOn: networkToggle.enabled) { newValue in
                     NetworkToggle.shared.setEnabled(newValue)
                 }
-                .frame(width: 38, height: 22)
+                .frame(width: 54, height: 24)
+            }
+
+            if GPUService.hasGPU {
+                HStack(spacing: 8) {
+                    Image(systemName: "display")
+                        .frame(width: 20, alignment: .center)
+                    Text(l10n.moduleName(.dgpu))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    AppKitSwitch(label: "dgpu", isOn: dgpuToggle.enabled) { newValue in
+                        DGpuToggle.shared.setEnabled(newValue)
+                    }
+                    .frame(width: 54, height: 24)
+                }
+            }
+
+            HStack(spacing: 8) {
+                Image(systemName: "memorychip")
+                    .frame(width: 20, alignment: .center)
+                Text(l10n.moduleName(.memory))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                AppKitSwitch(label: "memory", isOn: memoryToggle.enabled) { newValue in
+                    MemoryToggle.shared.setEnabled(newValue)
+                }
+                .frame(width: 54, height: 24)
+            }
+
+            HStack(spacing: 8) {
+                Image(systemName: "fan")
+                    .frame(width: 20, alignment: .center)
+                Text(l10n.moduleName(.fan))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                AppKitSwitch(label: "fan", isOn: fanToggle.enabled) { newValue in
+                    FanToggle.shared.setEnabled(newValue)
+                }
+                .frame(width: 54, height: 24)
             }
 
             if BatteryService.hasBattery {
@@ -171,31 +243,7 @@ struct SettingsView: View {
                     AppKitSwitch(label: "battery", isOn: batteryToggle.enabled) { newValue in
                         BatteryToggle.shared.setEnabled(newValue)
                     }
-                    .frame(width: 38, height: 22)
-                }
-            }
-
-            if GPUService.hasGPU {
-                HStack(spacing: 8) {
-                    Image(systemName: "display")
-                        .frame(width: 20, alignment: .center)
-                    Text(l10n.moduleName(.gpuUsage))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    AppKitSwitch(label: "gpu", isOn: gpuToggle.enabled) { newValue in
-                        GpuToggle.shared.setEnabled(newValue)
-                    }
-                    .frame(width: 38, height: 22)
-                }
-
-                HStack(spacing: 8) {
-                    Image(systemName: "thermometer.sun.fill")
-                        .frame(width: 20, alignment: .center)
-                    Text(l10n.moduleName(.gpuTemp))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    AppKitSwitch(label: "gpuTemp", isOn: gpuTempToggle.enabled) { newValue in
-                        GpuTempToggle.shared.setEnabled(newValue)
-                    }
-                    .frame(width: 38, height: 22)
+                    .frame(width: 54, height: 24)
                 }
             }
 
@@ -207,7 +255,7 @@ struct SettingsView: View {
                 AppKitSwitch(label: "limit", isOn: limitToggle.enabled) { newValue in
                     LimitToggle.shared.setEnabled(newValue)
                 }
-                .frame(width: 38, height: 22)
+                .frame(width: 54, height: 24)
             }
 
             HStack(spacing: 8) {
@@ -218,12 +266,19 @@ struct SettingsView: View {
                 AppKitSwitch(label: "finderMenu", isOn: finderMenuToggle.enabled) { newValue in
                     FinderMenuToggle.shared.setEnabled(newValue)
                 }
-                .frame(width: 38, height: 22)
+                .frame(width: 54, height: 24)
             }
 
             Divider()
 
-            ThrottleStatusSection()
+            ThrottleStatusSection(onExpandedChange: { expanded in
+                guard expanded else { return }
+                // 展开后把温度区滚动到可视位置，否则看起来像点了没反应
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    withAnimation { proxy.scrollTo("throttleSection", anchor: .top) }
+                }
+            })
+            .id("throttleSection")
 
             Divider()
 
@@ -234,6 +289,22 @@ struct SettingsView: View {
                     Image(systemName: "chart.xyaxis.line")
                         .frame(width: 20, alignment: .center)
                     Text(l10n.historyButton)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(.primary)
+
+            Button(action: {
+                showSensors = true
+            }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "thermometer.medium")
+                        .frame(width: 20, alignment: .center)
+                    Text(l10n.sensorsButton)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Image(systemName: "chevron.right")
                         .font(.caption)
@@ -303,6 +374,10 @@ struct SettingsView: View {
             }
             .buttonStyle(.plain)
             .foregroundColor(.red)
+            }
+            // 锁定内容宽度：280 弹窗 - 2×20 padding。不锁的话节流摘要会把
+            // VStack 撑到 ~330pt，开关被顶出右边界裁掉
+            .frame(width: 240)
             }
         }
         .padding(20)

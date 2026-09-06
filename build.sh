@@ -54,6 +54,10 @@ SOURCES=(
     MacState/Views/PopoverView.swift
     MacState/Views/SettingsView.swift
     MacState/Views/HistoryView.swift
+    MacState/Views/SensorsView.swift
+    MacState/Core/IGpuToggle.swift
+    MacState/Core/DGpuToggle.swift
+    MacState/Core/LimitPanel.swift
 )
 
 CONFIG="${1:-release}"

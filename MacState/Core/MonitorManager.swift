@@ -20,6 +20,8 @@ enum ModuleType: String, CaseIterable, Identifiable {
     case battery = "battery"
     case gpuUsage = "gpu_usage"
     case gpuTemp = "gpu_temp"
+    case igpu = "igpu"
+    case dgpu = "dgpu"
     case limit = "limit"
 
     var id: String { rawValue }
@@ -43,6 +45,10 @@ final class MonitorManager: ObservableObject {
     @Published var batteryInfo = BatteryInfo()
     @Published var gpuUsage: Double = -1
     @Published var gpuTemp: Double = 0
+    @Published var igpuUsage: Double = -1
+    @Published var igpuTemp: Double = 0
+    @Published var dgpuUsage: Double = -1
+    @Published var dgpuTemp: Double = 0
     @Published var cpuSpeedLimit: Double = -1
 
     @Published var refreshInterval: TimeInterval = 3.0
@@ -93,8 +99,9 @@ final class MonitorManager: ObservableObject {
         let fanEnabled = FanToggle.shared.enabled
         let networkEnabled = NetworkToggle.shared.enabled
         let batteryEnabled = BatteryToggle.shared.enabled
-        let gpuEnabled = GpuToggle.shared.enabled
-        let gpuTempEnabled = GpuTempToggle.shared.enabled
+        let igpuEnabled = IGpuToggle.shared.enabled
+        let dgpuEnabled = DGpuToggle.shared.enabled
+        let gpuTracked = igpuEnabled || dgpuEnabled
         let limitEnabled = LimitToggle.shared.enabled
 
         workQueue.async { [weak self] in
@@ -104,8 +111,14 @@ final class MonitorManager: ObservableObject {
             let fans = fanEnabled ? SMCService.shared.allFanSpeeds() : nil
             let net = networkEnabled ? NetworkService.shared.currentSpeed() : nil
             let bat = batteryEnabled ? BatteryService.shared.info() : nil
-            let gpu = gpuEnabled ? GPUService.shared.gpuUsage() : -1.0
-            let gpuT = GPUService.shared.gpuTemperature() ?? 0
+            let gpuUsages = gpuTracked ? GPUService.shared.allGPUUsages() : []
+            let gpuTemps = gpuTracked ? GPUService.shared.allGPUTemperatures() : []
+            let igpuU = gpuUsages.first { $0.name == "integrated" }?.usage ?? -1.0
+            let dgpuU = gpuUsages.first { $0.name == "discrete" }?.usage ?? -1.0
+            let igpuT = gpuTemps.first { $0.label == "integrated" }?.temp ?? 0
+            let dgpuT = gpuTemps.first { $0.label == "discrete" }?.temp ?? 0
+            let gpu = gpuTracked ? max(igpuU, dgpuU) : -1.0
+            let gpuT = gpuTracked ? max(igpuT, dgpuT) : 0
 
             // Power / throttle metrics for history recording (SMC reads are
             // cheap but stay off the main thread)
@@ -140,8 +153,12 @@ final class MonitorManager: ObservableObject {
                         self.batteryInfo = bat
                     }
                 }
-                if gpuEnabled && Int(self.gpuUsage) != Int(gpu) { self.gpuUsage = gpu }
-                if gpuTempEnabled && Int(self.gpuTemp) != Int(gpuT) { self.gpuTemp = gpuT }
+                if gpuTracked && Int(self.gpuUsage) != Int(gpu) { self.gpuUsage = gpu }
+                if gpuTracked && Int(self.gpuTemp) != Int(gpuT) { self.gpuTemp = gpuT }
+                if igpuEnabled && Int(self.igpuUsage) != Int(igpuU) { self.igpuUsage = igpuU }
+                if igpuEnabled && Int(self.igpuTemp) != Int(igpuT) { self.igpuTemp = igpuT }
+                if dgpuEnabled && Int(self.dgpuUsage) != Int(dgpuU) { self.dgpuUsage = dgpuU }
+                if dgpuEnabled && Int(self.dgpuTemp) != Int(dgpuT) { self.dgpuTemp = dgpuT }
                 if limitEnabled && Int(self.cpuSpeedLimit) != Int(speedLimit) { self.cpuSpeedLimit = speedLimit }
 
                 HistoryStore.shared.record(
