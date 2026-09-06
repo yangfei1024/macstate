@@ -7,7 +7,7 @@ CONTENTS_DIR="${BUNDLE_DIR}/Contents"
 MACOS_DIR="${CONTENTS_DIR}/MacOS"
 RESOURCES_DIR="${CONTENTS_DIR}/Resources"
 # Auto-detect architecture
-ARCH=$(uname -m)
+ARCH="${2:-$(uname -m)}"  # ./build.sh [release/debug] [arm64/x86_64]
 if [ "${ARCH}" = "x86_64" ]; then
     TARGET="x86_64-apple-macos13.0"
 else

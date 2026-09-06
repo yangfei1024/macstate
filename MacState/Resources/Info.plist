@@ -6,6 +6,8 @@
 	<string>en</string>
 	<key>CFBundleExecutable</key>
 	<string>MacState</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.snail007.macstate</string>
 	<key>CFBundleInfoDictionaryVersion</key>
@@ -15,11 +17,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.7.0</string>
+	<string>1.9.0</string>
 	<key>CFBundleVersion</key>
-	<string>10</string>
-	<key>CFBundleIconFile</key>
-	<string>AppIcon</string>
+	<integer>11</integer>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<key>LSUIElement</key>
