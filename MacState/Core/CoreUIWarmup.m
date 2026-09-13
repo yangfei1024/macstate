@@ -63,7 +63,42 @@ static BOOL ProbeOnceCrashes(Class cls, SEL sel) {
     return crashed;
 }
 
+/// NSNumber 遥测兼容层：坏驱动的遥测代码会把栈上的 NSNumber 标签指针
+/// 误当 CFString 调用（length / _getCString:maxLength:encoding: /
+/// characterAtIndex:），走 ObjC 转发必崩。补 3 个占位方法让调用变成
+/// 无害返回。合法代码不会对 NSNumber 调这些 NSString 选择器（原本必崩），
+/// 因此不影响任何正常路径。必须在所有探测之前启用。
+static BOOL TelemetryCompat_getCString(id self, SEL _cmd, char *buf, NSUInteger max, NSUInteger enc) {
+    if (buf && max > 0) { buf[0] = '?'; buf[1] = '\0'; }
+    return YES;
+}
+
+static unsigned short TelemetryCompat_charAtIndex(id self, SEL _cmd, NSUInteger index) {
+    return 63;
+}
+
+static void EngageTelemetryCompat(void) {
+    Class cls = [NSNumber class];
+    if (!class_getInstanceMethod(cls, @selector(length))) {
+        class_addMethod(cls, @selector(length),
+            imp_implementationWithBlock(^NSUInteger(id self){ return 4; }), "I@:");
+    }
+    if (!class_getInstanceMethod(cls, @selector(_getCString:maxLength:encoding:))) {
+        class_addMethod(cls, @selector(_getCString:maxLength:encoding:),
+            (IMP)TelemetryCompat_getCString, "B@:^*QQ");
+    }
+    if (!class_getInstanceMethod(cls, @selector(characterAtIndex:))) {
+        class_addMethod(cls, @selector(characterAtIndex:),
+            (IMP)TelemetryCompat_charAtIndex, "S@:Q");
+    }
+    NSLog(@"MacState CoreUI: NSNumber telemetry compat engaged");
+}
+
 void macstate_prepare_coreui(void) {
+    // 最先：让驱动遥测的误调用变成无害返回（覆盖 CoreUI / RenderBox /
+    // Core Animation 等所有 Metal 提交路径的同类崩溃）
+    EngageTelemetryCompat();
+
     Class cls = NSClassFromString(@"CUIShapeEffectStack");
     SEL sel = NSSelectorFromString(@"sharedCIContext");
     if (!cls || ![(id)cls respondsToSelector:sel]) return;
