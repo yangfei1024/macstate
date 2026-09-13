@@ -5,6 +5,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBarController: StatusBarController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // 必须最先执行：子进程探测 CoreUI 渲染管线是否会触发驱动崩溃；
+        // 会崩则切换直通渲染（详见 CoreUIWarmup.h）
+        macstate_prepare_coreui()
+
         statusBarController = StatusBarController(manager: MonitorManager.shared)
 
         // Debug/self-test: open the history window right after launch

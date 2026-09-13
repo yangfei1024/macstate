@@ -9,6 +9,10 @@ import AppKit
 @main
 struct RenderProbeMain {
     static func main() {
+        // 与主进程一致地接上 CoreUI 安全网，探针测的是"有安全网时 SwiftUI
+        // 是否可用"——可用即完整 UI，不可用才降级基础模式
+        macstate_prepare_coreui()
+
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
 

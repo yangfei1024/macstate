@@ -6,4 +6,4 @@
 #endif
 
 // CoreUI shared-CIContext warmup (CoreUIWarmup.m) — see comment there
-void macstate_warmup_coreui(void);
+void macstate_prepare_coreui(void);

@@ -28,6 +28,13 @@ final class UICompatService: ObservableObject {
             swiftUISafe = false
             return
         }
+        // 用户自救开关：defaults write com.snail007.macstate ForceBasicMode -bool YES
+        // （驱动仍随机崩溃时的持久化兜底，基础模式纯 AppKit 渲染）
+        if UserDefaults.standard.bool(forKey: "ForceBasicMode") {
+            probeFinished = true
+            swiftUISafe = false
+            return
+        }
         // 测试钩子：跳过黑名单/崩溃学习，仅用探针判定（验证用）
         if ProcessInfo.processInfo.environment["MACSTATE_ALLOW_SWIFTUI"] == "1" {
             DispatchQueue.global(qos: .utility).async {
