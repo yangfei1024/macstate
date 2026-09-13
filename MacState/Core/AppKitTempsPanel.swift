@@ -164,7 +164,7 @@ final class AppKitTempsPanelController: NSObject {
 
         let table = NSTableView()
         table.headerView = nil
-        table.rowHeight = 22
+        table.rowHeight = 24
         table.gridStyleMask = []
         table.backgroundColor = .clear
         let keyCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("akTempKey"))
@@ -213,14 +213,24 @@ extension AppKitTempsPanelController: NSTableViewDataSource, NSTableViewDelegate
         MainActor.assumeIsolated { rows.count }
     }
 
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        MainActor.assumeIsolated {
+            guard row < rows.count else { return 24 }
+            if rows[row].isHeader { return row == 0 ? 30 : 36 }
+            return 24
+        }
+    }
+
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         MainActor.assumeIsolated {
             guard row < rows.count else { return nil }
             let row_ = rows[row]
 
             if row_.isHeader {
-                let cell = NSTextField(labelWithString: row_.title)
-                cell.font = NSFont.boldSystemFont(ofSize: 11)
+                // 分组头只占首列，其余列留空
+                guard tableColumn?.identifier == .init("akTempKey") else { return NSView() }
+                let cell = NSTextField(labelWithString: row_.title.uppercased())
+                cell.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
                 cell.textColor = .secondaryLabelColor
                 return cell
             }

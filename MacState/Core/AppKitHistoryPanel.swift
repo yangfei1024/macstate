@@ -27,6 +27,7 @@ final class AppKitHistoryPanelController {
         guard let panel else { return }
         positionPanel(panel)
         panel.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
         startTimer()
     }
 
@@ -52,6 +53,7 @@ final class AppKitHistoryPanelController {
         )
         p.title = l.historyTitle
         p.isReleasedWhenClosed = false
+        p.level = .floating
         p.minSize = NSSize(width: 520, height: 480)
 
         let content = NSView()
@@ -185,24 +187,29 @@ final class HistoryChartView: NSView {
         samples: [HistorySample], unit: String,
         fixedMin: Double? = nil, fixedMax: Double? = nil
     ) {
-        let inset: CGFloat = 30 // 左侧留 y 轴标签
-        let plot = NSRect(x: rect.minX + inset, y: rect.minY + 12,
-                          width: rect.width - inset - 6, height: rect.height - 26)
+        let inset: CGFloat = 44 // 左侧留 y 轴标签
+        let plot = NSRect(x: rect.minX + inset, y: rect.minY + 14,
+                          width: rect.width - inset - 8, height: rect.height - 30)
 
         // 标题与图例
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
-            .foregroundColor: NSColor.secondaryLabelColor,
+            .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
+            .foregroundColor: NSColor.labelColor,
         ]
-        (title as NSString).draw(at: NSPoint(x: rect.minX, y: rect.maxY - 14), withAttributes: attrs)
-        var legendX = rect.minX + 80
+        let titleSize = (title as NSString).size(withAttributes: attrs)
+        (title as NSString).draw(at: NSPoint(x: rect.minX, y: rect.maxY - 16), withAttributes: attrs)
+        var legendX = rect.minX + titleSize.width + 14
         for (name, color, _) in groups {
-            let text = "\(name) (\(unit))" as NSString
-            text.draw(at: NSPoint(x: legendX, y: rect.maxY - 14), withAttributes: [
+            // 色点 + 名称（图例更精致）
+            let dot = NSBezierPath(ovalIn: NSRect(x: legendX, y: rect.maxY - 13, width: 7, height: 7))
+            color.setFill()
+            dot.fill()
+            let text = name as NSString
+            text.draw(at: NSPoint(x: legendX + 11, y: rect.maxY - 15), withAttributes: [
                 .font: NSFont.systemFont(ofSize: 10),
-                .foregroundColor: color,
+                .foregroundColor: NSColor.secondaryLabelColor,
             ])
-            legendX += text.size().width + 16
+            legendX += 11 + text.size().width + 14
         }
 
         // 汇总各组序列（min-max 降采样）
@@ -227,27 +234,33 @@ final class HistoryChartView: NSView {
         if let fmax = fixedMax { vMax = fmax }
         if vMax - vMin < 1 { vMax = vMin + 1 }
 
-        // 网格与 y 轴标签
+        // 网格（3 条横线 + 圆角边框）与 y 轴标签
         let gridAttrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 9),
             .foregroundColor: NSColor.secondaryLabelColor,
         ]
-        for i in 0...2 {
-            let frac = CGFloat(i) / 2
+        NSColor.gridColor.setStroke()
+        NSBezierPath(roundedRect: plot, xRadius: 6, yRadius: 6).stroke()
+        for i in 1...2 {
+            let frac = CGFloat(i) / 3
             let gy = plot.minY + plot.height * frac
-            NSColor.gridColor.setStroke()
+            NSColor.separatorColor.setStroke()
             NSBezierPath(rect: NSRect(x: plot.minX, y: gy, width: plot.width, height: 0)).stroke()
-            let val = vMax - (vMax - vMin) * Double(frac)
-            let text = "\(Int(val.rounded()))\(unit)" as NSString
+        }
+        for i in 0...3 {
+            let frac = CGFloat(i) / 3
+            let gy = plot.minY + plot.height * frac
+            let val = vMin + (vMax - vMin) * Double(frac)
+            let text = "\(Int(val.rounded()))" as NSString
             let ts = text.size(withAttributes: gridAttrs)
-            text.draw(at: NSPoint(x: plot.minX - ts.width - 4, y: gy - ts.height / 2), withAttributes: gridAttrs)
+            text.draw(at: NSPoint(x: plot.minX - ts.width - 5, y: gy - ts.height / 2), withAttributes: gridAttrs)
         }
 
         guard let first = all.first?.points, let t0 = first.first?.t, let t1 = first.last?.t, t1 > t0 else { return }
 
         // x 轴时间标签（起止）
         let df = DateFormatter()
-        df.dateFormat = "HH:mm"
+        df.dateFormat = "MM/dd HH:mm"
         let t0s = df.string(from: Date(timeIntervalSince1970: t0.timeIntervalSince1970)) as NSString
         let t1s = df.string(from: Date(timeIntervalSince1970: t1.timeIntervalSince1970)) as NSString
         t0s.draw(at: NSPoint(x: plot.minX, y: plot.minY - 11), withAttributes: gridAttrs)
@@ -260,13 +273,10 @@ final class HistoryChartView: NSView {
             plot.minY + plot.height * CGFloat((v - vMin) / (vMax - vMin))
         }
 
-        NSColor.gridColor.setStroke()
-        NSBezierPath(rect: NSRect(x: plot.minX, y: plot.minY, width: plot.width, height: plot.height)).stroke()
-
         for (pts, color) in all {
             guard pts.count > 1 else { continue }
             let path = NSBezierPath()
-            path.lineWidth = 1.4
+            path.lineWidth = 1.6
             color.setStroke()
             for (i, p) in pts.enumerated() {
                 let pt = NSPoint(x: xFor(p.t), y: yFor(p.v))
