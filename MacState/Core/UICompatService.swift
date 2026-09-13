@@ -3,9 +3,12 @@ import IOKit
 
 /// 渲染兼容性探测服务。
 /// 部分机型的 GPU 驱动（macOS 14 Iris Pro 的 MetalOld.dylib、macOS 26 的
-/// AMD 驱动遥测）会在 SwiftUI/CoreUI 渲染路径上直接 SIGABRT。启动时用
-/// 子进程探针实测：探针崩溃 ⇒ 该机器进入 AppKit 基础模式，所有 SwiftUI
-/// 界面（设置页/全部温度/历史曲线/限速面板）不再加载，避免闪退。
+/// AMD 驱动遥测）会在 SwiftUI/CoreUI 渲染路径上直接 SIGABRT。三层判定：
+/// 1. MetalOld 机器（Haswell/Broadwell Intel 核显）→ 直接基础模式；
+/// 2. 本版本曾在该机器上发生过遥测崩溃（扫描崩溃日志）→ 基础模式
+///    （自学习：未知坏组合最多崩一次，之后永久稳定）；
+/// 3. 其余机器跑子进程探针（15 轮真实快照渲染）实测。
+/// 基础模式下所有 SwiftUI 界面不加载，功能标注"不可用"而不是闪退。
 @MainActor
 final class UICompatService: ObservableObject {
     static let shared = UICompatService()
@@ -19,13 +22,13 @@ final class UICompatService: ObservableObject {
     }
 
     private func runProbe() {
-        // 测试钩子：强制走基础模式（跳过探针，视为不安全）
+        // 测试钩子：强制走基础模式（跳过所有判定，视为不安全）
         if ProcessInfo.processInfo.environment["MACSTATE_FORCE_BASIC"] == "1" {
             probeFinished = true
             swiftUISafe = false
             return
         }
-        // 测试钩子：允许在黑名单机器上强制启用 SwiftUI（验证用）
+        // 测试钩子：跳过黑名单/崩溃学习，仅用探针判定（验证用）
         if ProcessInfo.processInfo.environment["MACSTATE_ALLOW_SWIFTUI"] == "1" {
             DispatchQueue.global(qos: .utility).async {
                 let ok = Self.runProbeProcess()
@@ -37,16 +40,18 @@ final class UICompatService: ObservableObject {
             }
             return
         }
-        // 已实锤的驱动遥测黑名单，直接判不安全（与探针互为双保险）：
-        // macOS 14 Iris Pro = MetalOld.dylib；macOS 26 AMD = 驱动遥测崩溃
-        if Self.knownBadDriverCombo {
-            probeFinished = true
-            swiftUISafe = false
-            NotificationCenter.default.post(name: Notification.Name("MacStateUICompatChanged"), object: nil)
-            return
-        }
+        // 层1：MetalOld 老驱动机器（Haswell/Broadwell 核显），静态秒判
         DispatchQueue.global(qos: .utility).async {
-            let ok = Self.runProbeProcess()
+            var ok = !Self.isMetalOldMachine()
+            // 层2：本版本曾在本机发生过遥测崩溃 → 自学习降级
+            if ok, Self.currentBuildCrashedWithTelemetry() {
+                NSLog("MacState UICompat: current build previously crashed with GPU telemetry signature -> basic mode")
+                ok = false
+            }
+            // 层3：探针实测（15 轮真实快照渲染）
+            if ok {
+                ok = Self.runProbeProcess()
+            }
             Task { @MainActor in
                 self.swiftUISafe = ok
                 self.probeFinished = true
@@ -55,37 +60,76 @@ final class UICompatService: ObservableObject {
         }
     }
 
-    /// 已实锤会崩 SwiftUI 渲染的"系统版本 + GPU"组合。
-    /// OS major ≥ 26 且存在 AMD 独显（驱动遥测 doesNotRecognizeSelector）；
-    /// macOS 14 + Iris Pro（MetalOld.dylib）由探针覆盖，因 Iris Pro 机型
-    /// 系统版本跨度大，逐版本枚举不可靠。
-    private nonisolated static var knownBadDriverCombo: Bool {
-        let osMajor = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
-        guard osMajor >= 26 else { return false }
-        return GPUService.hasDiscreteGPU && Self.isAMDDevice()
-    }
-
-    private nonisolated static func isAMDDevice() -> Bool {
+    /// MetalOld.dylib 服务的老 Intel 核显（Haswell = AppleIntelHD5000 系列、
+    /// Broadwell = AppleIntelBDW 系列）。其驱动遥测在 CoreUI/Metal 路径上
+    /// 有无法捕获的崩溃（dispatch_once noexcept 帧）。
+    private nonisolated static func isMetalOldMachine() -> Bool {
         var iterator: io_iterator_t = 0
         let kr = IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOAccelerator"), &iterator)
         guard kr == KERN_SUCCESS else { return false }
         defer { IOObjectRelease(iterator) }
-        while case let entry = IOIteratorNext(iterator), entry != 0 {
+        var bad = false
+        var entry: io_object_t = IOIteratorNext(iterator)
+        while entry != 0 {
             var props: Unmanaged<CFMutableDictionary>?
             if IORegistryEntryCreateCFProperties(entry, &props, kCFAllocatorDefault, 0) == KERN_SUCCESS,
                let dict = props?.takeRetainedValue() as? [String: Any] {
-                let cls = (dict["IOClass"] as? String)?.lowercased() ?? ""
-                if cls.contains("amd") {
-                    IOObjectRelease(entry)
-                    return true
+                let cls = (dict["IOClass"] as? String) ?? ""
+                if cls.contains("AppleIntelHD5000") || cls.contains("AppleIntelBDW") {
+                    bad = true
                 }
             }
             IOObjectRelease(entry)
+            if bad { break }
+            entry = IOIteratorNext(iterator)
+        }
+        return bad
+    }
+
+    /// 自学习：扫描崩溃日志，若"当前版本"在本机发生过 GPU 遥测崩溃
+    /// （getCStringForCFString / MetalOld 特征），则本次启动进入基础模式。
+    /// 每个新版本重置——修复后自动恢复完整 UI。
+    private nonisolated static func currentBuildCrashedWithTelemetry() -> Bool {
+        let fm = FileManager.default
+        let dir = fm.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/DiagnosticReports")
+        guard let files = try? fm.contentsOfDirectory(atPath: dir.path) else { return false }
+        let current = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+        guard !current.isEmpty else { return false }
+        let cutoff = Date().addingTimeInterval(-14 * 24 * 3600)
+
+        let names = files
+            .filter { $0.hasPrefix("MacState-") && $0.hasSuffix(".ips") }
+            .sorted()
+            .suffix(30)
+
+        for name in names {
+            let url = dir.appendingPathComponent(name)
+            guard let attr = try? fm.attributesOfItem(atPath: url.path),
+                  let mtime = attr[.modificationDate] as? Date, mtime > cutoff,
+                  let raw = try? String(contentsOf: url, encoding: .utf8),
+                  let nl = raw.firstIndex(of: "\n") else { continue }
+
+            guard let metaData = try? JSONSerialization.jsonObject(with: Data(raw[..<nl].utf8)) as? [String: Any],
+                  (metaData["app_version"] as? String)?.hasPrefix(current) == true else { continue }
+            guard let body = try? JSONSerialization.jsonObject(with: Data(raw[nl...].utf8)) as? [String: Any] else { continue }
+
+            let threads = body["threads"] as? [[String: Any]] ?? []
+            let imgs = body["usedImages"] as? [[String: Any]] ?? []
+            let matched = threads.contains { th in
+                (th["frames"] as? [[String: Any]] ?? []).contains { fr in
+                    guard let i = fr["imageIndex"] as? Int, i < imgs.count else { return false }
+                    let imgName = imgs[i]["name"] as? String ?? ""
+                    let sym = fr["symbol"] as? String ?? ""
+                    return sym.contains("getCStringForCFString") || imgName == "MetalOld"
+                }
+            }
+            if matched { return true }
         }
         return false
     }
 
-    private nonisolated static func runProbeProcess() -> Bool {        guard let exe = Bundle.main.executableURL?.deletingLastPathComponent()
+    private nonisolated static func runProbeProcess() -> Bool {
+        guard let exe = Bundle.main.executableURL?.deletingLastPathComponent()
             .appendingPathComponent("MacStateRenderProbe"),
             FileManager.default.fileExists(atPath: exe.path) else {
             // 探针缺失时不拦截（老版本升级场景）
@@ -102,8 +146,8 @@ final class UICompatService: ObservableObject {
             return true
         }
 
-        // 探针正常 ~4 秒退出；给到 15 秒上限（含首次 Swift 运行时预热）
-        let deadline = Date().addingTimeInterval(15)
+        // 探针正常 ~12 秒退出；给到 25 秒上限（含首次 Swift 运行时预热）
+        let deadline = Date().addingTimeInterval(25)
         while task.isRunning && Date() < deadline {
             Thread.sleep(forTimeInterval: 0.2)
         }

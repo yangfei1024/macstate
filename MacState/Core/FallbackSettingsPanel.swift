@@ -297,6 +297,12 @@ final class FallbackSettingsPanelController {
         let t = label(title, size: 12)
         row.addArrangedSubview(t)
 
+        // 弹性占位：把开关推到行尾
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.init(1), for: .horizontal)
+        spacer.setContentCompressionResistancePriority(.init(1), for: .horizontal)
+        row.addArrangedSubview(spacer)
+
         let sw = NSSwitch()
         sw.controlSize = .small
         let current = state()
@@ -308,8 +314,6 @@ final class FallbackSettingsPanelController {
         objc_setAssociatedObject(sw, "handler", current.1, .OBJC_ASSOCIATION_COPY_NONATOMIC)
         row.addArrangedSubview(sw)
 
-        // 标签占满中间，开关贴右
-        row.setCustomSpacing(60, after: iconView)
         stack.addArrangedSubview(row)
     }
 
