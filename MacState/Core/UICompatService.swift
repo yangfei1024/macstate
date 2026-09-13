@@ -67,30 +67,25 @@ final class UICompatService: ObservableObject {
         }
     }
 
-    /// MetalOld.dylib 服务的老 Intel 核显（Haswell = AppleIntelHD5000 系列、
-    /// Broadwell = AppleIntelBDW 系列）。其驱动遥测在 CoreUI/Metal 路径上
-    /// 有无法捕获的崩溃（dispatch_once noexcept 帧）。
+    /// MetalOld.dylib 服务的老 Intel 核显机器（Haswell / Broadwell）。
+    /// 该驱动栈的遥测在 CoreUI/RenderBox/Metal 提交路径上存在无法捕获的
+    /// 随机崩溃（dispatch_once noexcept 帧，@try 接不住），且实测直通
+    /// 替换只能保住 AppKit 控件层，SwiftUI 的 RenderBox 管线照样崩
+    /// （真机 5 轮开关存活、点开 SwiftUI 温度面板数秒内崩）。
+    /// 用 CPU 型号判定（IOClass 字段在该代机器上不可靠）：
+    /// Haswell = model 60/63/69/70，Broadwell = model 61/71。
     private nonisolated static func isMetalOldMachine() -> Bool {
-        var iterator: io_iterator_t = 0
-        let kr = IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOAccelerator"), &iterator)
-        guard kr == KERN_SUCCESS else { return false }
-        defer { IOObjectRelease(iterator) }
-        var bad = false
-        var entry: io_object_t = IOIteratorNext(iterator)
-        while entry != 0 {
-            var props: Unmanaged<CFMutableDictionary>?
-            if IORegistryEntryCreateCFProperties(entry, &props, kCFAllocatorDefault, 0) == KERN_SUCCESS,
-               let dict = props?.takeRetainedValue() as? [String: Any] {
-                let cls = (dict["IOClass"] as? String) ?? ""
-                if cls.contains("AppleIntelHD5000") || cls.contains("AppleIntelBDW") {
-                    bad = true
-                }
-            }
-            IOObjectRelease(entry)
-            if bad { break }
-            entry = IOIteratorNext(iterator)
-        }
-        return bad
+        // Apple Silicon 上这些 sysctl 无意义，直接排除
+        var arm64: Int32 = 0
+        var size = MemoryLayout<Int32>.size
+        sysctlbyname("hw.optional.arm64", &arm64, &size, nil, 0)
+        if arm64 == 1 { return false }
+
+        var model: Int32 = 0
+        sysctlbyname("machdep.cpu.model", &model, &size, nil, 0)
+        // Haswell: 0x3C(60) 0x3F(63) 0x45(69) 0x46(70)；Broadwell: 0x3D(61) 0x47(71)
+        let metalOldModels: Set<Int32> = [60, 63, 69, 70, 61, 71]
+        return metalOldModels.contains(model)
     }
 
     /// 自学习：扫描崩溃日志，若"当前版本"在本机发生过 GPU 遥测崩溃
