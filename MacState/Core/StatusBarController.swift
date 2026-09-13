@@ -45,7 +45,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     private var pendingBatteryPercent: Int = 0
     private var renderScheduled = false
     private var energyRefreshTimer: Timer?
-    private var activeTip: NSPopover?
+    private var activeTip: NSWindow?
     private var tipClickMonitor: Any?
 
     private var segmentRanges: [(MetricSegmentKind, ClosedRange<CGFloat>)] = []
@@ -79,6 +79,37 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
                 guard let self, let button = self.settingsItem.button else { return }
                 self.showSettingsPopover(from: button)
+            }
+        }
+
+        // 压测钩子：MACSTATE_STRESS_ALL=1 轮点所有段 + 开合设置 + 空闲循环
+        if ProcessInfo.processInfo.environment["MACSTATE_STRESS_ALL"] == "1" {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+                self?.stressAllSegments(rounds: 12)
+            }
+        }
+    }
+
+    /// 依次触发每个段的 tooltip/面板 + 开合设置面板，轮次间留 6 秒空闲，
+    /// 覆盖"点击菜单后崩"与"放置一段时间后崩"两种用户报告模式
+    private func stressAllSegments(rounds: Int) {
+        guard rounds > 0, let button = metricsItem.button else { return }
+        let all: [MetricSegmentKind] = [.cpu, .igpu, .network, .dgpu, .memory, .battery, .limit]
+        let kind = all[abs(12 - rounds) % all.count]
+        showTooltip(for: kind, button: button)
+        NSLog("STRESS round=\(rounds) kind=\(kind)")
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+            guard let self else { return }
+            if let settingsButton = self.settingsItem.button {
+                self.showSettingsPopover(from: settingsButton)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+                guard let self else { return }
+                self.hideSettingsPanel()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
+                    self?.stressAllSegments(rounds: rounds - 1)
+                }
             }
         }
     }
@@ -666,7 +697,8 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
 
     private func showSettingsPopover(from sender: NSStatusBarButton) {
         // 渲染兼容性分流：探针判定 SwiftUI 不安全的机器走纯 AppKit 基础面板，
-        // 宁可功能降级也不闪退
+        // 宁可功能降级也不闪退。hostingController 保持 nil——不安全机器上
+        // 进程内不能存在任何 SwiftUI 视图（RenderBox 后台快照会随机崩进程）
         guard UICompatService.shared.swiftUISafe else {
             dismissActiveTip()
             FallbackSettingsPanelController.shared.toggle()
@@ -843,18 +875,13 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     private func showSimpleTooltip(text: String, button: NSStatusBarButton, rect: NSRect) {
         dismissActiveTip()
 
-        let tip = NSPopover()
-        tip.behavior = .applicationDefined
-        tip.animates = false
+        let tip = makeTipPanel(width: 240, height: CGFloat(max(text.components(separatedBy: "\n").count, 1) * 18 + 16))
         let label = NSTextField(labelWithString: text)
         label.font = NSFont.systemFont(ofSize: 12)
         label.alignment = .center
         label.maximumNumberOfLines = 0
         label.translatesAutoresizingMaskIntoConstraints = false
-        let lineCount = max(text.components(separatedBy: "\n").count, 1)
-        let height = CGFloat(lineCount * 18 + 16)
-        tip.contentSize = NSSize(width: 240, height: height)
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: height))
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: tip.frame.height))
         container.addSubview(label)
         NSLayoutConstraint.activate([
             label.centerXAnchor.constraint(equalTo: container.centerXAnchor),
@@ -862,12 +889,46 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
             label.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 8),
             label.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -8)
         ])
-        let vc = NSViewController()
-        vc.view = container
-        tip.contentViewController = vc
-        tip.show(relativeTo: rect, of: button, preferredEdge: .minY)
+        tip.contentView = container
+        showTipPanel(tip, button: button)
         activeTip = tip
         installTipClickMonitor()
+    }
+
+    /// NSPanel 气泡：替代 NSPopover。macOS 26 上 NSPopover 的呈现走
+    /// RenderBox 后台快照（ImageProvider→Metal commit→AMD 驱动遥测 SIGABRT），
+    /// 内容是不是 SwiftUI 都崩；NSPanel 无此路径。
+    private func makeTipPanel(width: CGFloat, height: CGFloat) -> NSPanel {
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: width, height: height),
+            styleMask: [.titled, .nonactivatingPanel, .utilityWindow],
+            backing: .buffered,
+            defer: false
+        )
+        panel.titlebarAppearsTransparent = true
+        panel.titleVisibility = .hidden
+        panel.isFloatingPanel = true
+        panel.level = .statusBar
+        panel.hidesOnDeactivate = false
+        panel.isReleasedWhenClosed = false
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        return panel
+    }
+
+    /// 把气泡定位到指定段正下方
+    private func showTipPanel(_ panel: NSPanel, button: NSStatusBarButton, rect: NSRect? = nil) {
+        guard let buttonWindow = button.window else { return }
+        let anchorRect = rect.map { buttonWindow.convertToScreen($0) }
+            ?? buttonWindow.convertToScreen(button.bounds)
+        guard let screen = NSScreen.main else { return }
+        let visible = screen.visibleFrame
+        var x = anchorRect.midX - panel.frame.width / 2
+        x = max(visible.minX + 4, min(x, visible.maxX - panel.frame.width - 4))
+        let y = anchorRect.minY - panel.frame.height - 4
+        panel.setFrameOrigin(NSPoint(x: x, y: max(visible.minY + 4, y)))
+        panel.makeKeyAndOrderFront(nil)
     }
 
     private func showBatteryTooltip(button: NSStatusBarButton, kind: MetricSegmentKind) {
@@ -875,9 +936,8 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
 
         let info = manager.batteryInfo
         let l = L10n.shared
-        let tip = NSPopover()
-        tip.behavior = .applicationDefined
-        tip.animates = false
+        // 高度最后才知道，先建面板后设尺寸
+        let tip = makeTipPanel(width: 280, height: 320)
 
         let labelFont = NSFont.systemFont(ofSize: 12)
         let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
@@ -1039,7 +1099,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         let basicHeight: CGFloat = 10 + CGFloat(rows.count) * 18 + CGFloat(rows.count - 1) * 4
         let energyHeight: CGFloat = 99
         let height: CGFloat = basicHeight + energyHeight + 10
-        tip.contentSize = NSSize(width: max(260, totalW), height: height)
+        tip.setContentSize(NSSize(width: max(260, totalW), height: height))
 
         energyRefreshTimer?.invalidate()
         energyRefreshTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
@@ -1047,10 +1107,8 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
             updateEnergyRows()
         }
 
-        let vc = NSViewController()
-        vc.view = container
-        tip.contentViewController = vc
-        tip.show(relativeTo: segmentRect(for: kind, in: button), of: button, preferredEdge: .minY)
+        tip.contentView = container
+        showTipPanel(tip, button: button, rect: segmentRect(for: kind, in: button))
         activeTip = tip
         installTipClickMonitor()
     }
@@ -1062,7 +1120,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
             NSEvent.removeMonitor(monitor)
             tipClickMonitor = nil
         }
-        activeTip?.performClose(nil)
+        activeTip?.orderOut(nil)
         activeTip = nil
     }
 

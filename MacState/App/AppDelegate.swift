@@ -1,16 +1,5 @@
-import SwiftUI
 import AppKit
-
-@main
-struct MacStateApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-
-    var body: some Scene {
-        Settings {
-            EmptyView()
-        }
-    }
-}
+import Foundation
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBarController: StatusBarController?

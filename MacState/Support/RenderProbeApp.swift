@@ -2,10 +2,10 @@ import SwiftUI
 import AppKit
 
 /// 渲染兼容性探针（独立可执行文件 MacStateRenderProbe）。
-/// 在可疑机型上由 UICompatService 以子进程方式启动：宿主真实的设置界面
-/// 跑几秒真实显示循环。若机器的 GPU 驱动（如 macOS 14 Iris Pro 的
-/// MetalOld.dylib）在 CoreUI/SwiftUI 渲染路径上崩溃，本进程会 SIGABRT，
-/// 父进程据此判定该机器需进入 AppKit 基础模式。
+/// 在可疑机型上由 UICompatService 以子进程方式启动：宿主真实的设置界面，
+/// 反复触发 SwiftUI 的离屏快照渲染（RenderBox ImageProvider 路径——正是
+/// 各机型驱动遥测崩溃的触发点），任何一轮崩掉即判定该机器需进入 AppKit
+/// 基础模式。探测须严苛：单次显示循环通过可能是侥幸（崩溃是概率性的）。
 @main
 struct RenderProbeMain {
     static func main() {
@@ -32,10 +32,23 @@ struct RenderProbeMain {
         win.center()
         win.makeKeyAndOrderFront(nil)
 
-        _ = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { _ in
-            fflush(stdout)
-            print("PROBE-OK")
-            exit(0)
+        // 每 700ms 触发一轮 layer 快照渲染（layoutIfNeeded + cacheDisplay，
+        // 与 RenderBox 崩溃同源的离屏路径），共 15 轮 ≈ 11 秒
+        var round = 0
+        let total = 15
+        _ = Timer.scheduledTimer(withTimeInterval: 0.7, repeats: true) { t in
+            host.layoutSubtreeIfNeeded()
+            let bounds = host.bounds
+            if let rep = host.bitmapImageRepForCachingDisplay(in: bounds) {
+                host.cacheDisplay(in: bounds, to: rep)
+            }
+            round += 1
+            if round >= total {
+                t.invalidate()
+                fflush(stdout)
+                print("PROBE-OK")
+                exit(0)
+            }
         }
         app.run()
         exit(1)

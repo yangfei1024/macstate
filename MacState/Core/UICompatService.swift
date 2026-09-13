@@ -1,4 +1,5 @@
 import Foundation
+import IOKit
 
 /// 渲染兼容性探测服务。
 /// 部分机型的 GPU 驱动（macOS 14 Iris Pro 的 MetalOld.dylib、macOS 26 的
@@ -24,6 +25,26 @@ final class UICompatService: ObservableObject {
             swiftUISafe = false
             return
         }
+        // 测试钩子：允许在黑名单机器上强制启用 SwiftUI（验证用）
+        if ProcessInfo.processInfo.environment["MACSTATE_ALLOW_SWIFTUI"] == "1" {
+            DispatchQueue.global(qos: .utility).async {
+                let ok = Self.runProbeProcess()
+                Task { @MainActor in
+                    self.swiftUISafe = ok
+                    self.probeFinished = true
+                    NotificationCenter.default.post(name: Notification.Name("MacStateUICompatChanged"), object: nil)
+                }
+            }
+            return
+        }
+        // 已实锤的驱动遥测黑名单，直接判不安全（与探针互为双保险）：
+        // macOS 14 Iris Pro = MetalOld.dylib；macOS 26 AMD = 驱动遥测崩溃
+        if Self.knownBadDriverCombo {
+            probeFinished = true
+            swiftUISafe = false
+            NotificationCenter.default.post(name: Notification.Name("MacStateUICompatChanged"), object: nil)
+            return
+        }
         DispatchQueue.global(qos: .utility).async {
             let ok = Self.runProbeProcess()
             Task { @MainActor in
@@ -34,8 +55,37 @@ final class UICompatService: ObservableObject {
         }
     }
 
-    private nonisolated static func runProbeProcess() -> Bool {
-        guard let exe = Bundle.main.executableURL?.deletingLastPathComponent()
+    /// 已实锤会崩 SwiftUI 渲染的"系统版本 + GPU"组合。
+    /// OS major ≥ 26 且存在 AMD 独显（驱动遥测 doesNotRecognizeSelector）；
+    /// macOS 14 + Iris Pro（MetalOld.dylib）由探针覆盖，因 Iris Pro 机型
+    /// 系统版本跨度大，逐版本枚举不可靠。
+    private nonisolated static var knownBadDriverCombo: Bool {
+        let osMajor = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+        guard osMajor >= 26 else { return false }
+        return GPUService.hasDiscreteGPU && Self.isAMDDevice()
+    }
+
+    private nonisolated static func isAMDDevice() -> Bool {
+        var iterator: io_iterator_t = 0
+        let kr = IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOAccelerator"), &iterator)
+        guard kr == KERN_SUCCESS else { return false }
+        defer { IOObjectRelease(iterator) }
+        while case let entry = IOIteratorNext(iterator), entry != 0 {
+            var props: Unmanaged<CFMutableDictionary>?
+            if IORegistryEntryCreateCFProperties(entry, &props, kCFAllocatorDefault, 0) == KERN_SUCCESS,
+               let dict = props?.takeRetainedValue() as? [String: Any] {
+                let cls = (dict["IOClass"] as? String)?.lowercased() ?? ""
+                if cls.contains("amd") {
+                    IOObjectRelease(entry)
+                    return true
+                }
+            }
+            IOObjectRelease(entry)
+        }
+        return false
+    }
+
+    private nonisolated static func runProbeProcess() -> Bool {        guard let exe = Bundle.main.executableURL?.deletingLastPathComponent()
             .appendingPathComponent("MacStateRenderProbe"),
             FileManager.default.fileExists(atPath: exe.path) else {
             // 探针缺失时不拦截（老版本升级场景）

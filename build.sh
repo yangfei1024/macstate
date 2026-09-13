@@ -16,7 +16,7 @@ fi
 SDK=$(xcrun --show-sdk-path --sdk macosx)
 
 SOURCES=(
-    MacState/App/MacStateApp.swift
+    MacState/App/Entry.swift
     MacState/Core/SMCService.swift
     MacState/Core/CPUService.swift
     MacState/Core/MemoryService.swift
@@ -60,6 +60,7 @@ SOURCES=(
     MacState/Core/LimitPanel.swift
     MacState/Core/UICompatService.swift
     MacState/Core/FallbackSettingsPanel.swift
+    MacState/App/AppDelegate.swift
 )
 
 CONFIG="${1:-release}"
@@ -90,7 +91,7 @@ xcrun swiftc ${SWIFT_FLAGS} -o "${MACOS_DIR}/${APP_NAME}" "${SOURCES[@]}" build/
 # subprocess at app start on suspicious machines — see UICompatService)
 PROBE_SOURCES=()
 for s in "${SOURCES[@]}"; do
-    [[ "$s" == *MacStateApp.swift ]] || PROBE_SOURCES+=("$s")
+    [[ "$s" == *Support/RenderProbeApp.swift || "$s" == *App/Entry.swift ]] || PROBE_SOURCES+=("$s")
 done
 xcrun swiftc ${SWIFT_FLAGS} -parse-as-library \
     "${PROBE_SOURCES[@]}" MacState/Support/RenderProbeApp.swift \

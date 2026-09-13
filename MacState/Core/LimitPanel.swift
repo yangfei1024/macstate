@@ -12,6 +12,9 @@ final class LimitPanelController {
     private init() {}
 
     func toggle() {
+        // 不安全机器：SwiftUI 视图一个都不能建（RenderBox 后台快照随机崩进程），
+        // StatusBarController 已分流到纯文字摘要，这里是最后防线
+        guard UICompatService.shared.swiftUISafe else { return }
         if let p = panel, p.isVisible {
             p.orderOut(nil)
             return
