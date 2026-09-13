@@ -1,39 +1,7 @@
 import SwiftUI
 
-// MARK: - 传感器分组
+// 传感器分组与目录定义已移至 Core/SMCTempCatalog.swift（AppKit/SwiftUI 共用）
 
-enum SensorGroup: Int, CaseIterable {
-    case cpu, gpu, power, board, battery, heatsink, enclosure, ambient, other
-
-    func title(_ language: Language) -> String {
-        switch self {
-        case .cpu: return language == .zh ? "CPU / 核显" : "CPU / iGPU"
-        case .gpu: return language == .zh ? "独立显卡" : "Discrete GPU"
-        case .power: return language == .zh ? "供电 / VRM（板级）" : "Power / VRM (board)"
-        case .board: return language == .zh ? "芯片组 / 主板" : "Chipset / Board"
-        case .battery: return language == .zh ? "电池" : "Battery"
-        case .heatsink: return language == .zh ? "散热 / 风道" : "Heatsink / Airflow"
-        case .enclosure: return language == .zh ? "外壳 / 掌托" : "Enclosure"
-        case .ambient: return language == .zh ? "环境" : "Ambient"
-        case .other: return language == .zh ? "其他 / 未标注" : "Other / Unlabeled"
-        }
-    }
-}
-
-struct SMCTempSensor: Identifiable {
-    let key: String
-    let zh: String
-    let en: String
-    let group: SensorGroup
-
-    var id: String { key }
-    func label(_ language: Language) -> String { language == .zh ? zh : en }
-}
-
-// MARK: - 温度传感器页面
-
-/// 列出 SMC 上全部温度键（运行时枚举，不写死机型清单）。
-/// 已知键显示中英文含义，未知键按原始键名归入"其他"。
 struct SensorsView: View {
     @ObservedObject private var l10n = L10n.shared
     @StateObject private var reader = SensorReader()
@@ -46,68 +14,6 @@ struct SensorsView: View {
 
     @State private var sensors: [SMCTempSensor] = []
     @State private var discovered = false
-
-    private static let catalog: [String: (zh: String, en: String, group: SensorGroup)] = [
-        // CPU / 核显
-        "TC0E": ("CPU 封装 E", "CPU Package E", .cpu),
-        "TC0F": ("CPU 封装 F", "CPU Package F", .cpu),
-        "TC0T": ("PECI 偏移", "PECI Offset", .cpu),
-        "TC1C": ("CPU 核心 1", "CPU Core 1", .cpu),
-        "TC2C": ("CPU 核心 2", "CPU Core 2", .cpu),
-        "TC3C": ("CPU 核心 3", "CPU Core 3", .cpu),
-        "TC4C": ("CPU 核心 4", "CPU Core 4", .cpu),
-        "TC5C": ("CPU 核心 5", "CPU Core 5", .cpu),
-        "TC6C": ("CPU 核心 6", "CPU Core 6", .cpu),
-        "TC7C": ("CPU 核心 7", "CPU Core 7", .cpu),
-        "TC8C": ("CPU 核心 8", "CPU Core 8", .cpu),
-        "TCGC": ("核显核心", "iGPU Die", .cpu),
-        "TCMX": ("CPU 最热核", "CPU Hottest Core", .cpu),
-        "TCXC": ("CPU 复合 max", "CPU Complex Max", .cpu),
-        "TCSA": ("System Agent", "System Agent", .cpu),
-        // 独立显卡
-        "TGDD": ("独显核心", "dGPU Die", .gpu),
-        "TGDE": ("独显二极管 E", "dGPU Diode E", .gpu),
-        "TGDF": ("独显二极管 F", "dGPU Diode F", .gpu),
-        "TG0P": ("独显近旁", "dGPU Proximity", .gpu),
-        "TG1P": ("独显近旁 2", "dGPU Proximity 2", .gpu),
-        "TGDT": ("未挂载", "Unpopulated", .gpu),
-        // 供电 / VRM（板级测点，非结温）
-        "TC0P": ("CPU 供电区近旁", "CPU VRM-area Proximity", .power),
-        "TGVP": ("独显供电区", "dGPU VRM Area", .power),
-        "TGVF": ("独显供电区 F", "dGPU VRM Filtered", .power),
-        // 芯片组 / 主板
-        "TPCD": ("PCH 芯片组", "PCH Die", .board),
-        "TM0P": ("内存区", "Memory Area", .board),
-        "Tm0P": ("主板", "Mainboard", .board),
-        "TW0P": ("无线网卡", "Wireless Card", .board),
-        "TTLD": ("TB3 左侧", "Thunderbolt L", .board),
-        "TTRD": ("TB3 右侧", "Thunderbolt R", .board),
-        // 电池
-        "TB0T": ("电池 1", "Battery 1", .battery),
-        "TB1T": ("电池 2", "Battery 2", .battery),
-        "TB2T": ("电池 3", "Battery 3", .battery),
-        // 散热 / 风道
-        "Th1H": ("热管区 1", "Heatsink 1", .heatsink),
-        "Th2H": ("热管区 2", "Heatsink 2", .heatsink),
-        "TH0F": ("风道 F", "Airflow F", .heatsink),
-        "TH0X": ("风道 X", "Airflow X", .heatsink),
-        "TH0a": ("进风热敏 a", "Inlet a", .heatsink),
-        "TH0b": ("进风热敏 b", "Inlet b", .heatsink),
-        "TH1a": ("进风热敏 1a", "Inlet 1a", .heatsink),
-        "TH1b": ("进风热敏 1b", "Inlet 1b", .heatsink),
-        // 外壳 / 掌托
-        "Ts0P": ("掌托 左", "Palm Rest L", .enclosure),
-        "Ts1P": ("掌托 右", "Palm Rest R", .enclosure),
-        "Ts0S": ("外壳皮肤 1", "Shell Skin 1", .enclosure),
-        "Ts1S": ("外壳皮肤 2", "Shell Skin 2", .enclosure),
-        "Ts2S": ("外壳皮肤 3", "Shell Skin 3", .enclosure),
-        "TaLC": ("左接口区", "Left Ports", .enclosure),
-        "TaRC": ("右接口区", "Right Ports", .enclosure),
-        // 环境
-        "TA0V": ("环境空气", "Ambient Air", .ambient),
-        // 未标注
-        "TF0S": ("未标注", "Unlabeled", .other),
-    ]
 
     var body: some View {
         Group {
@@ -259,8 +165,8 @@ struct SensorsView: View {
     private func discover() {
         let keys = SMCService.shared.allKeys().filter { $0.hasPrefix("T") }
         sensors = keys.sorted().map { key in
-            if let entry = Self.catalog[key] {
-                return SMCTempSensor(key: key, zh: entry.zh, en: entry.en, group: entry.group)
+            if let known = SMCTempCatalog.byKey[key] {
+                return known
             }
             return SMCTempSensor(key: key, zh: key, en: key, group: .other)
         }

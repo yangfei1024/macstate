@@ -830,31 +830,13 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     private func showLimitTooltip(button: NSStatusBarButton, kind: MetricSegmentKind) {
         // SwiftUI 不安全的机器回退到纯文字摘要（AppKit 气泡），避免加载限速温度面板
         guard UICompatService.shared.swiftUISafe else {
+            // 基础模式：打开原生温度+功率面板（功率摘要头 + 全部温度表）
             dismissActiveTip()
-            showLegacyLimitTooltip(button: button, kind: kind)
+            AppKitTempsPanelController.shared.toggle()
             return
         }
         dismissActiveTip()
         LimitPanelController.shared.toggle()
-    }
-
-    /// 纯 AppKit 文字版限速摘要（基础模式使用）
-    private func showLegacyLimitTooltip(button: NSStatusBarButton, kind: MetricSegmentKind) {
-        let l = L10n.shared
-        let power = PowerLimitService.shared
-        var lines: [String] = []
-
-        let limit = power.cpuSpeedLimitPercent()
-        let marker = throttleActive ? " ⚠️" : ""
-        lines.append("\(l.cpuSpeedLimit): \(limit.map { String(format: "%.0f%%", $0) } ?? "N/A")\(marker)")
-
-        if let limits = power.currentPowerLimits() {
-            lines.append("\(l.powerLimit): CPU \(String(format: "%.0f%%", limits.cpu)) / GPU \(String(format: "%.0f%%", limits.gpu))")
-        }
-        lines.append("\(l.thermalStateLabel): \(thermalName(power.thermalState))")
-        lines.append("\(l.cpuLoadLabel): \(String(format: "%.0f%%", manager.cpuUsage)) · \(l.moduleName(.cpuTemp)): \(String(format: "%.0f°C", manager.cpuTemp))")
-
-        showSimpleTooltip(text: lines.joined(separator: "\n"), button: button, rect: segmentRect(for: kind, in: button))
     }
 
     private func thermalName(_ state: ProcessInfo.ThermalState) -> String {

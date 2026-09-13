@@ -60,6 +60,9 @@ SOURCES=(
     MacState/Core/LimitPanel.swift
     MacState/Core/UICompatService.swift
     MacState/Core/FallbackSettingsPanel.swift
+    MacState/Core/SMCTempCatalog.swift
+    MacState/Core/AppKitTempsPanel.swift
+    MacState/Core/AppKitHistoryPanel.swift
     MacState/App/AppDelegate.swift
 )
 

@@ -169,18 +169,18 @@ final class FallbackSettingsPanelController {
 
         stack.addArrangedSubview(separator())
 
-        // SwiftUI 专属功能：不可用（显示但不加载）
-        stack.addArrangedSubview(sectionLabel(l.language == .zh ? "此设备不可用" : "Unavailable on this device"))
-        let unavailableHint = label(
-            l.language == .zh
-                ? "历史曲线 / 全部温度 / 限速温度面板因图形驱动兼容问题停用。"
-                : "History / all-temperatures / limit panel are disabled due to the GPU driver issue.",
-            size: 11
-        )
-        unavailableHint.textColor = .secondaryLabelColor
-        unavailableHint.maximumNumberOfLines = 0
-        unavailableHint.preferredMaxLayoutWidth = 240
-        stack.addArrangedSubview(unavailableHint)
+        // 历史曲线 / 全部温度：原生绘制版本，所有机器可用
+        stack.addArrangedSubview(sectionLabel(l.language == .zh ? "监控" : "Monitoring"))
+        let histBtn = NSButton(title: l.language == .zh ? "📊 历史曲线（功率 / 温度 / 负载 / 限速）" : "📊 History (power / temps / load / limit)",
+                               target: self, action: #selector(openHistory(_:)))
+        histBtn.bezelStyle = .rounded
+        histBtn.translatesAutoresizingMaskIntoConstraints = false
+        stack.addArrangedSubview(histBtn)
+        let tempsBtn = NSButton(title: l.language == .zh ? "🌡 全部温度" : "🌡 All Temperatures",
+                                target: self, action: #selector(openTemps(_:)))
+        tempsBtn.bezelStyle = .rounded
+        tempsBtn.translatesAutoresizingMaskIntoConstraints = false
+        stack.addArrangedSubview(tempsBtn)
 
         stack.addArrangedSubview(separator())
 
@@ -333,6 +333,14 @@ final class FallbackSettingsPanelController {
         if let lang = Language.allCases.first(where: { $0.displayName == sender.titleOfSelectedItem }) {
             L10n.shared.language = lang
         }
+    }
+
+    @objc private func openHistory(_ sender: NSButton) {
+        AppKitHistoryPanelController.shared.toggle()
+    }
+
+    @objc private func openTemps(_ sender: NSButton) {
+        AppKitTempsPanelController.shared.toggle()
     }
 
     @objc private func loginToggled(_ sender: NSSwitch) {
