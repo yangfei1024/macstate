@@ -4,3 +4,6 @@
 #include "xdb_api.h"
 
 #endif
+
+// CoreUI shared-CIContext warmup (CoreUIWarmup.m) — see comment there
+void macstate_warmup_coreui(void);

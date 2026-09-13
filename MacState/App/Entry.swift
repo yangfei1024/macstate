@@ -7,6 +7,11 @@ import AppKit
 @main
 final class MacStateEntry {
     static func main() {
+        // 第一件事：预热 CoreUI 共享 CIContext（见 CoreUIWarmup.m）。
+        // 必须先于一切 AppKit/SwiftUI 工作，趁进程状态干净时创建并缓存，
+        // 之后所有布局复用单例，绕开老驱动的遥测崩溃路径。
+        macstate_warmup_coreui()
+
         let app = NSApplication.shared
         let delegate = AppDelegate()
         app.delegate = delegate

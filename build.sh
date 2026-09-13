@@ -85,7 +85,8 @@ else
     SWIFT_FLAGS="${SWIFT_FLAGS} -O"
 fi
 
-xcrun swiftc ${SWIFT_FLAGS} -o "${MACOS_DIR}/${APP_NAME}" "${SOURCES[@]}" build/xdb_searcher.o build/xdb_util.o
+xcrun clang ${C_FLAGS} -c MacState/Core/CoreUIWarmup.m -o build/coreui_warmup.o
+xcrun swiftc ${SWIFT_FLAGS} -o "${MACOS_DIR}/${APP_NAME}" "${SOURCES[@]}" build/xdb_searcher.o build/xdb_util.o build/coreui_warmup.o
 
 # Render compatibility probe (separate executable; runs SettingsView in a
 # subprocess at app start on suspicious machines — see UICompatService)
@@ -95,7 +96,7 @@ for s in "${SOURCES[@]}"; do
 done
 xcrun swiftc ${SWIFT_FLAGS} -parse-as-library \
     "${PROBE_SOURCES[@]}" MacState/Support/RenderProbeApp.swift \
-    build/xdb_searcher.o build/xdb_util.o \
+    build/xdb_searcher.o build/xdb_util.o build/coreui_warmup.o \
     -o "${MACOS_DIR}/MacStateRenderProbe"
 
 # Copy resources
