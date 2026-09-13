@@ -154,10 +154,15 @@ final class UICompatService: ObservableObject {
             Thread.sleep(forTimeInterval: 0.2)
         }
         if task.isRunning {
-            // 超时视为不安全（渲染可能已挂起）
+            // 超时视为不安全（渲染可能已挂起）。
+            // SIGTERM 一次后直接 SIGKILL：挂起的子进程若 lingering，
+            // 可能在几分钟后才 SIGSEGV，产生误导性的崩溃报告噪音。
             task.terminate()
-            Thread.sleep(forTimeInterval: 0.5)
-            if task.isRunning { task.terminate() }
+            Thread.sleep(forTimeInterval: 0.3)
+            if task.isRunning {
+                kill(task.processIdentifier, SIGKILL)
+                task.waitUntilExit()
+            }
             return false
         }
 

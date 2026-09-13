@@ -149,7 +149,7 @@ final class FallbackSettingsPanelController {
         addModuleRow(stack, icon: "speedometer", title: l.moduleName(.limit)) {
             (LimitToggle.shared.enabled, LimitToggle.shared.setEnabled)
         }
-        addModuleRow(stack, icon: "contextualmenu", title: l.finderMenu) {
+        addModuleRow(stack, icon: "contextualmenu.and.cursorarrow", title: l.finderMenu) {
             (FinderMenuToggle.shared.enabled, FinderMenuToggle.shared.setEnabled)
         }
 
@@ -187,6 +187,10 @@ final class FallbackSettingsPanelController {
         // 刷新间隔
         let refreshRow = hstack()
         refreshRow.addArrangedSubview(label(l.refreshInterval, size: 12))
+        let rSpacer = NSView()
+        rSpacer.setContentHuggingPriority(.init(1), for: .horizontal)
+        rSpacer.setContentCompressionResistancePriority(.init(1), for: .horizontal)
+        refreshRow.addArrangedSubview(rSpacer)
         let refreshPopup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 110, height: 24))
         refreshPopup.addItems(withTitles: ["3s", "5s", "10s"])
         let current = MonitorManager.shared.refreshInterval
@@ -201,6 +205,10 @@ final class FallbackSettingsPanelController {
         // 语言
         let langRow = hstack()
         langRow.addArrangedSubview(label(l.languageLabel, size: 12))
+        let lSpacer = NSView()
+        lSpacer.setContentHuggingPriority(.init(1), for: .horizontal)
+        lSpacer.setContentCompressionResistancePriority(.init(1), for: .horizontal)
+        langRow.addArrangedSubview(lSpacer)
         let langPopup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 110, height: 24))
         langPopup.addItems(withTitles: Language.allCases.map(\.displayName))
         langPopup.selectItem(withTitle: l.language.displayName)
@@ -315,6 +323,10 @@ final class FallbackSettingsPanelController {
         row.addArrangedSubview(sw)
 
         stack.addArrangedSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: stack.leadingAnchor),
+            row.trailingAnchor.constraint(equalTo: stack.trailingAnchor),
+        ])
     }
 
     // MARK: - Actions
