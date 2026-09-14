@@ -12,8 +12,7 @@ final class AppKitTempsPanelController: NSObject {
     private var rows: [Row] = []
     private var refreshTimer: Timer?
     private var summaryLabels: [NSTextField] = []
-    /// 每个数据行连续无效读数的次数；≥10 判定为本机不存在的传感器，隐藏
-    private var invalidCounts: [Int] = []
+
 
     private struct Row {
         var isHeader: Bool = false
@@ -58,23 +57,11 @@ final class AppKitTempsPanelController: NSObject {
 
     private func refresh() {
         refreshSummary()
-        var changed = false
         for (i, row) in rows.enumerated() where !row.isHeader {
-            if let v = SMCService.shared.readKey(row.key), v > 1, v < 120 {
-                rows[i].value = v
-                invalidCounts[i] = 0
-            } else {
-                // 从未有效过的键累计无效次数，达到阈值判定为本机不存在 → 隐藏
-                if rows[i].value == nil {
-                    invalidCounts[i] = min(invalidCounts[i] + 1, 11)
-                    if invalidCounts[i] == 10 { changed = true }
-                }
-            }
+            rows[i].value = SMCService.shared.readKey(row.key)
         }
-        if changed { table?.reloadData() }
         table?.enumerateAvailableRowViews { rowView, row in
-            guard row < self.rows.count, !self.rows[row].isHeader,
-                  self.invalidCounts[row] < 10 else { return }
+            guard row < self.rows.count, !self.rows[row].isHeader else { return }
             let v = self.rows[row].value
             if let cell = rowView.view(atColumn: 2) as? NSTextField {
                 cell.stringValue = v.map { String(format: "%.1f°C", $0) } ?? "--"
@@ -106,15 +93,12 @@ final class AppKitTempsPanelController: NSObject {
     private func rebuildRows() {
         let l = L10n.shared
         rows = []
-        invalidCounts = []
         for group in SensorGroup.allCases {
             let groupSensors = SMCTempCatalog.all.filter { $0.group == group }
             guard !groupSensors.isEmpty else { continue }
             rows.append(Row(isHeader: true, title: group.title(l.language)))
-            invalidCounts.append(-1) // 分组头不参与计数
             for gs in groupSensors {
                 rows.append(Row(isHeader: false, title: gs.label(l.language), key: gs.key, value: nil))
-                invalidCounts.append(0)
             }
         }
         table?.reloadData()
@@ -230,8 +214,6 @@ extension AppKitTempsPanelController: NSTableViewDataSource, NSTableViewDelegate
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         MainActor.assumeIsolated {
             guard row < rows.count else { return 24 }
-            // 本机不存在的传感器（连续 10 次 × 3 秒无有效读数）隐藏
-            if !rows[row].isHeader, rows[row].value == nil, invalidCounts[row] >= 10 { return 0 }
             if rows[row].isHeader { return row == 0 ? 30 : 36 }
             return 24
         }
