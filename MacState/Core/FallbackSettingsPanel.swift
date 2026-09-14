@@ -228,44 +228,38 @@ final class FallbackSettingsPanelController: NSObject {
 
     // MARK: - 构建辅助
 
-    /// 内嵌圆角卡片：行垂直堆叠 + 行间内缩分隔线
+    /// 内嵌圆角卡片：行垂直堆叠（手动约束，行撑满宽度）+ 行间内缩分隔线
     private func makeCard(rows: [NSView]) -> NSView {
         let group = NSView()
         group.wantsLayer = true
         group.layer?.cornerRadius = 10
         group.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.06).cgColor
+        group.translatesAutoresizingMaskIntoConstraints = false
 
-        let stack = NSStackView(views: [])
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 0
-        stack.edgeInsets = NSEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        group.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: group.topAnchor, constant: 4),
-            stack.bottomAnchor.constraint(equalTo: group.bottomAnchor, constant: -4),
-            stack.leadingAnchor.constraint(equalTo: group.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: group.trailingAnchor),
-        ])
+        var cons: [NSLayoutConstraint] = []
+        var prevBottom: NSLayoutYAxisAnchor = group.topAnchor
+        var prevSpacing: CGFloat = 6
         for (i, row) in rows.enumerated() {
-            stack.addArrangedSubview(row)
-            NSLayoutConstraint.activate([
-                row.leadingAnchor.constraint(equalTo: stack.leadingAnchor, constant: 12),
-                row.trailingAnchor.constraint(equalTo: stack.trailingAnchor, constant: -12),
-            ])
+            group.addSubview(row)
+            cons.append(row.leadingAnchor.constraint(equalTo: group.leadingAnchor, constant: 12))
+            cons.append(row.trailingAnchor.constraint(equalTo: group.trailingAnchor, constant: -12))
+            cons.append(row.topAnchor.constraint(equalTo: prevBottom, constant: prevSpacing))
             if i < rows.count - 1 {
                 let line = NSBox()
                 line.boxType = .separator
                 line.translatesAutoresizingMaskIntoConstraints = false
-                stack.addArrangedSubview(line)
-                NSLayoutConstraint.activate([
-                    line.leadingAnchor.constraint(equalTo: stack.leadingAnchor, constant: 40),
-                    line.trailingAnchor.constraint(equalTo: stack.trailingAnchor),
-                    line.heightAnchor.constraint(equalToConstant: 1),
-                ])
+                group.addSubview(line)
+                cons.append(line.leadingAnchor.constraint(equalTo: group.leadingAnchor, constant: 50))
+                cons.append(line.trailingAnchor.constraint(equalTo: group.trailingAnchor, constant: -12))
+                cons.append(line.topAnchor.constraint(equalTo: row.bottomAnchor))
+                cons.append(line.heightAnchor.constraint(equalToConstant: 1))
+                prevBottom = line.bottomAnchor
+                prevSpacing = 0
+            } else {
+                cons.append(row.bottomAnchor.constraint(equalTo: group.bottomAnchor, constant: -6))
             }
         }
+        NSLayoutConstraint.activate(cons)
         return group
     }
 

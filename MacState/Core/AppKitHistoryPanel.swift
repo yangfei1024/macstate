@@ -189,7 +189,7 @@ final class HistoryChartView: NSView {
     ) {
         let inset: CGFloat = 44 // 左侧留 y 轴标签
         let plot = NSRect(x: rect.minX + inset, y: rect.minY + 14,
-                          width: rect.width - inset - 8, height: rect.height - 30)
+                          width: rect.width - inset - 8, height: rect.height - 44)
 
         // 标题与图例
         let attrs: [NSAttributedString.Key: Any] = [
