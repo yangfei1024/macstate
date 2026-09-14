@@ -1,14 +1,14 @@
 import Foundation
 import IOKit
 
-/// 渲染兼容性探测服务。
+/// 渲染兼容性判定服务。
 /// 部分机型的 GPU 驱动（macOS 14 Iris Pro 的 MetalOld.dylib、macOS 26 的
-/// AMD 驱动遥测）会在 SwiftUI/CoreUI 渲染路径上直接 SIGABRT。三层判定：
-/// 1. MetalOld 机器（Haswell/Broadwell Intel 核显）→ 直接基础模式；
+/// AMD 驱动遥测）会在渲染路径上随机 SIGABRT。CoreUIWarmup 里的 NSNumber
+/// 转发兜底 + 直通扁平化已在进程内消除整个崩溃类；本服务仅负责：
+/// 1. MetalOld 机器（Haswell/Broadwell Intel 核显）→ 基础模式（双保险）；
 /// 2. 本版本曾在该机器上发生过遥测崩溃（扫描崩溃日志）→ 基础模式
-///    （自学习：未知坏组合最多崩一次，之后永久稳定）；
-/// 3. 其余机器跑子进程探针（15 轮真实快照渲染）实测。
-/// 基础模式下所有 SwiftUI 界面不加载，功能标注"不可用"而不是闪退。
+///    （自学习：未知坏组合最多崩一次，之后永久稳定）。
+/// 基础模式下 SwiftUI 界面不加载，功能标注"不可用"而不是闪退。
 @MainActor
 final class UICompatService: ObservableObject {
     static let shared = UICompatService()
@@ -35,12 +35,12 @@ final class UICompatService: ObservableObject {
             swiftUISafe = false
             return
         }
-        // 测试钩子：跳过黑名单/崩溃学习，仅用探针判定（验证用）
+        // 测试钩子：MACSTATE_ALLOW_SWIFTUI=1 跳过自学习，仅按静态判定
         if ProcessInfo.processInfo.environment["MACSTATE_ALLOW_SWIFTUI"] == "1" {
             DispatchQueue.global(qos: .utility).async {
-                let ok = Self.runProbeProcess()
+                let bad = Self.isMetalOldMachine()
                 Task { @MainActor in
-                    self.swiftUISafe = ok
+                    self.swiftUISafe = !bad
                     self.probeFinished = true
                     NotificationCenter.default.post(name: Notification.Name("MacStateUICompatChanged"), object: nil)
                 }
@@ -54,10 +54,6 @@ final class UICompatService: ObservableObject {
             if ok, Self.currentBuildCrashedWithTelemetry() {
                 NSLog("MacState UICompat: current build previously crashed with GPU telemetry signature -> basic mode")
                 ok = false
-            }
-            // 层3：探针实测（15 轮真实快照渲染）
-            if ok {
-                ok = Self.runProbeProcess()
             }
             Task { @MainActor in
                 self.swiftUISafe = ok
@@ -128,45 +124,5 @@ final class UICompatService: ObservableObject {
             if matched { return true }
         }
         return false
-    }
-
-    private nonisolated static func runProbeProcess() -> Bool {
-        guard let exe = Bundle.main.executableURL?.deletingLastPathComponent()
-            .appendingPathComponent("MacStateRenderProbe"),
-            FileManager.default.fileExists(atPath: exe.path) else {
-            // 探针缺失时不拦截（老版本升级场景）
-            return true
-        }
-
-        let task = Process()
-        task.executableURL = exe
-        task.standardOutput = Pipe()
-        task.standardError = FileHandle.nullDevice
-        do {
-            try task.run()
-        } catch {
-            return true
-        }
-
-        // 探针正常 ~12 秒退出；给到 25 秒上限（含首次 Swift 运行时预热）
-        let deadline = Date().addingTimeInterval(25)
-        while task.isRunning && Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.2)
-        }
-        if task.isRunning {
-            // 超时视为不安全（渲染可能已挂起）。
-            // SIGTERM 一次后直接 SIGKILL：挂起的子进程若 lingering，
-            // 可能在几分钟后才 SIGSEGV，产生误导性的崩溃报告噪音。
-            task.terminate()
-            Thread.sleep(forTimeInterval: 0.3)
-            if task.isRunning {
-                kill(task.processIdentifier, SIGKILL)
-                task.waitUntilExit()
-            }
-            return false
-        }
-
-        // 正常退出 = 安全；被信号杀死（SIGABRT）= 驱动崩溃 = 不安全
-        return task.terminationReason == .exit && task.terminationStatus == 0
     }
 }

@@ -144,7 +144,7 @@ final class FallbackSettingsPanelController: NSObject {
         subtitle.textColor = .secondaryLabelColor
         titleStack.addArrangedSubview(appTitle)
         titleStack.addArrangedSubview(subtitle)
-        append(titleStack, topSpacing: 0)
+        // 顶部 40pt 由标题区的独立约束提供（append 的 topSpacing=0 仅建立锚点关系）
         allConstraints.append(titleStack.topAnchor.constraint(equalTo: content.topAnchor, constant: 40))
 
         // ── 分组 1：模块开关 ──

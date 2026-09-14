@@ -9,6 +9,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 会崩则切换直通渲染（详见 CoreUIWarmup.h）
         macstate_prepare_coreui()
 
+        // 诊断：布局期未捕获异常的完整原因落盘（AppKit 会随后主动崩溃）
+        NSSetUncaughtExceptionHandler { ex in
+            let msg = "UNCAUGHT \(ex.name.rawValue): \(ex.reason ?? "-")\n" +
+                ex.callStackSymbols.joined(separator: "\n")
+            try? msg.write(toFile: "/tmp/macstate_exception.log", atomically: true, encoding: .utf8)
+            NSLog("UNCAUGHT \(ex.name.rawValue): \(ex.reason ?? "-")")
+        }
+
         statusBarController = StatusBarController(manager: MonitorManager.shared)
 
         // Debug/self-test: open the history window right after launch

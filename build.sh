@@ -92,16 +92,6 @@ xcrun clang -fobjc-arc -O2 -target ${TARGET} -isysroot ${SDK} -framework Foundat
     -c MacState/Core/CoreUIWarmup.m -o build/CoreUIWarmup.o
 xcrun swiftc ${SWIFT_FLAGS} -o "${MACOS_DIR}/${APP_NAME}" "${SOURCES[@]}" build/xdb_searcher.o build/xdb_util.o build/CoreUIWarmup.o
 
-# Render compatibility probe (separate executable; runs SettingsView in a
-# subprocess at app start on suspicious machines — see UICompatService)
-PROBE_SOURCES=()
-for s in "${SOURCES[@]}"; do
-    [[ "$s" == *Support/RenderProbeApp.swift || "$s" == *App/Entry.swift ]] || PROBE_SOURCES+=("$s")
-done
-xcrun swiftc ${SWIFT_FLAGS} -parse-as-library \
-    "${PROBE_SOURCES[@]}" MacState/Support/RenderProbeApp.swift \
-    build/xdb_searcher.o build/xdb_util.o build/CoreUIWarmup.o \
-    -o "${MACOS_DIR}/MacStateRenderProbe"
 
 # Copy resources
 cp MacState/Resources/Info.plist "${CONTENTS_DIR}/Info.plist"
@@ -125,7 +115,6 @@ cp MacState/Extensions/FinderMenuSync-Info.plist "${APPEX_CONTENTS}/Info.plist"
 
 # Sign inside-out: appex first (with sandbox entitlements), probe next, then main app
 codesign --force --sign - --entitlements MacState/Extensions/FinderMenuSync.entitlements "${APPEX_DIR}"
-codesign --force --sign - "${MACOS_DIR}/MacStateRenderProbe"
 codesign --force --sign - "${BUNDLE_DIR}"
 
 echo "==> Build complete: ${BUNDLE_DIR}"
